@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const PORT = process.env.PORT || 3000;
 
 // Lobbies in-memory state
-// Structure: { [roomCode]: { code, players: [], gameMode, gameState } }
+// Structure: { [roomCode]: { code, players: [], gameMode, gameState, cleanupTimer? } }
 const lobbies = {};
 
 // Harmonic player color palette matching client
@@ -64,6 +64,21 @@ function sendToPlayer(ws, data) {
 
 // Helper: Get sanitized player list for public broadcast (excludes actual choices during gameplay)
 function getSanitizedPlayers(lobby) {
+    return lobby.players.filter(p => p.isOnline).map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        isHost: p.isHost,
+        isOnline: p.isOnline,
+        hasChosen: p.choice !== null,
+        status: p.status,
+        isSpectator: p.isSpectator || false,
+        isSafe: p.isSafe || false
+    }));
+}
+
+// Helper: Get full player list INCLUDING offline players (for reconnection-aware views)
+function getAllPlayersForBroadcast(lobby) {
     return lobby.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -307,12 +322,71 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    if (lobby.players.length >= 15) {
+                    // --- Auto-reclaim: check if there's an offline player with the same name ---
+                    const offlineMatch = lobby.players.find(
+                        p => p.name.toLowerCase() === playerName.toLowerCase() && !p.isOnline
+                    );
+
+                    if (offlineMatch) {
+                        // Re-attach this socket to the offline player slot
+                        offlineMatch.ws = ws;
+                        offlineMatch.isOnline = true;
+                        currentPlayer = offlineMatch;
+                        currentRoomCode = roomCode;
+
+                        // Cancel lobby cleanup timer if it was set
+                        if (lobby.cleanupTimer) {
+                            clearTimeout(lobby.cleanupTimer);
+                            lobby.cleanupTimer = null;
+                        }
+
+                        console.log(`Player ${offlineMatch.name} reclaimed offline slot in Lobby ${roomCode} via JOIN_ROOM.`);
+
+                        sendToPlayer(ws, {
+                            type: 'ROOM_JOINED',
+                            roomCode: roomCode,
+                            gameMode: lobby.gameMode,
+                            gameState: lobby.gameState,
+                            maxChanges: lobby.maxChanges || 0,
+                            roundNumber: lobby.roundNumber || 1,
+                            ultimateLoserId: lobby.ultimateLoserId || null,
+                            roundType: lobby.roundType || 'nhieu-ra-it-bi',
+                            isReconnect: true,
+                            player: {
+                                id: offlineMatch.id,
+                                name: offlineMatch.name,
+                                color: offlineMatch.color,
+                                isHost: offlineMatch.isHost,
+                                isSpectator: offlineMatch.isSpectator || false,
+                                isSafe: offlineMatch.isSafe || false
+                            }
+                        });
+
+                        // Broadcast system reconnect notification
+                        broadcastToLobby(roomCode, {
+                            type: 'CHAT_MESSAGE',
+                            playerId: 'system',
+                            playerName: 'Hệ thống',
+                            playerColor: { value: '#39ff14' },
+                            message: `Người chơi ${offlineMatch.name} đã kết nối lại! 🔗`
+                        });
+
+                        // Broadcast updated player list
+                        broadcastToLobby(roomCode, {
+                            type: 'PLAYER_LIST_UPDATE',
+                            players: getSanitizedPlayers(lobby)
+                        });
+                        break;
+                    }
+
+                    // --- Normal new join ---
+                    const onlineCount = lobby.players.filter(p => p.isOnline).length;
+                    if (onlineCount >= 15) {
                         sendToPlayer(ws, { type: 'ERROR', message: 'Phòng đã đầy!' });
                         return;
                     }
 
-                    // Check duplicate name
+                    // Check duplicate name among ONLINE players
                     const nameExists = lobby.players.some(p => p.name.toLowerCase() === playerName.toLowerCase() && p.isOnline);
                     if (nameExists) {
                         sendToPlayer(ws, { type: 'ERROR', message: 'Tên này đã được sử dụng trong phòng!' });
@@ -324,7 +398,7 @@ wss.on('connection', (ws) => {
                     currentPlayer = {
                         id: 'player-' + Date.now() + '-' + Math.floor(Math.random()*1000),
                         name: playerName,
-                        color: PALETTE[lobby.players.length % PALETTE.length],
+                        color: PALETTE[lobby.players.filter(p => p.isOnline).length % PALETTE.length],
                         choice: null,
                         choiceChanges: 0,
                         status: 'none',
@@ -358,6 +432,84 @@ wss.on('connection', (ws) => {
                     });
 
                     // Broadcast updated list to room
+                    broadcastToLobby(roomCode, {
+                        type: 'PLAYER_LIST_UPDATE',
+                        players: getSanitizedPlayers(lobby)
+                    });
+                    break;
+                }
+
+                // ------------------ REJOIN ROOM (Auto-reconnect) ------------------
+                case 'REJOIN_ROOM': {
+                    const roomCode = data.roomCode.trim().toUpperCase();
+                    const playerId = data.playerId;
+                    const playerName = data.playerName.trim();
+                    const lobby = lobbies[roomCode];
+
+                    if (!lobby) {
+                        // Room no longer exists, tell client to clear session
+                        sendToPlayer(ws, { type: 'REJOIN_FAILED', message: 'Phòng không còn tồn tại!' });
+                        return;
+                    }
+
+                    // Try to find the offline player by ID first, then by name
+                    let offlinePlayer = lobby.players.find(p => p.id === playerId && !p.isOnline);
+                    if (!offlinePlayer) {
+                        offlinePlayer = lobby.players.find(
+                            p => p.name.toLowerCase() === playerName.toLowerCase() && !p.isOnline
+                        );
+                    }
+
+                    if (!offlinePlayer) {
+                        // Player slot is gone or already online
+                        sendToPlayer(ws, { type: 'REJOIN_FAILED', message: 'Không tìm thấy phiên chơi cũ!' });
+                        return;
+                    }
+
+                    // Re-attach socket
+                    offlinePlayer.ws = ws;
+                    offlinePlayer.isOnline = true;
+                    currentPlayer = offlinePlayer;
+                    currentRoomCode = roomCode;
+
+                    // Cancel lobby cleanup timer if it was set
+                    if (lobby.cleanupTimer) {
+                        clearTimeout(lobby.cleanupTimer);
+                        lobby.cleanupTimer = null;
+                    }
+
+                    console.log(`Player ${offlinePlayer.name} reconnected to Lobby ${roomCode} via REJOIN_ROOM.`);
+
+                    sendToPlayer(ws, {
+                        type: 'ROOM_JOINED',
+                        roomCode: roomCode,
+                        gameMode: lobby.gameMode,
+                        gameState: lobby.gameState,
+                        maxChanges: lobby.maxChanges || 0,
+                        roundNumber: lobby.roundNumber || 1,
+                        ultimateLoserId: lobby.ultimateLoserId || null,
+                        roundType: lobby.roundType || 'nhieu-ra-it-bi',
+                        isReconnect: true,
+                        player: {
+                            id: offlinePlayer.id,
+                            name: offlinePlayer.name,
+                            color: offlinePlayer.color,
+                            isHost: offlinePlayer.isHost,
+                            isSpectator: offlinePlayer.isSpectator || false,
+                            isSafe: offlinePlayer.isSafe || false
+                        }
+                    });
+
+                    // Broadcast system reconnect notification
+                    broadcastToLobby(roomCode, {
+                        type: 'CHAT_MESSAGE',
+                        playerId: 'system',
+                        playerName: 'Hệ thống',
+                        playerColor: { value: '#39ff14' },
+                        message: `Người chơi ${offlinePlayer.name} đã kết nối lại! 🔗`
+                    });
+
+                    // Broadcast updated player list
                     broadcastToLobby(roomCode, {
                         type: 'PLAYER_LIST_UPDATE',
                         players: getSanitizedPlayers(lobby)
@@ -679,51 +831,109 @@ wss.on('connection', (ws) => {
                     });
                     break;
                 }
+
+                // ------------------ LEAVE ROOM (Deliberate) ------------------
+                case 'LEAVE_ROOM': {
+                    if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
+                    const lobby = lobbies[currentRoomCode];
+                    const leavingName = currentPlayer.name;
+                    const wasHost = currentPlayer.isHost;
+
+                    // Remove player completely from the lobby
+                    lobby.players = lobby.players.filter(p => p.id !== currentPlayer.id);
+
+                    const onlinePlayers = lobby.players.filter(p => p.isOnline);
+
+                    if (onlinePlayers.length === 0 && lobby.players.length === 0) {
+                        // Nobody left at all, delete lobby
+                        if (lobby.cleanupTimer) clearTimeout(lobby.cleanupTimer);
+                        delete lobbies[currentRoomCode];
+                        console.log(`Lobby ${currentRoomCode} deleted (last player left deliberately).`);
+                    } else {
+                        // Transfer host if needed
+                        if (wasHost && onlinePlayers.length > 0) {
+                            const newHost = onlinePlayers[0];
+                            newHost.isHost = true;
+                            console.log(`Host left deliberately in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
+                        }
+
+                        // Broadcast system message
+                        broadcastToLobby(currentRoomCode, {
+                            type: 'CHAT_MESSAGE',
+                            playerId: 'system',
+                            playerName: 'Hệ thống',
+                            playerColor: { value: '#ff3131' },
+                            message: `Người chơi ${leavingName} đã rời phòng. 👋`
+                        });
+
+                        // Broadcast updated player list
+                        broadcastToLobby(currentRoomCode, {
+                            type: 'PLAYER_LIST_UPDATE',
+                            players: getSanitizedPlayers(lobby)
+                        });
+                    }
+
+                    // Send confirmation to the leaving player
+                    sendToPlayer(ws, { type: 'LEAVE_CONFIRMED' });
+
+                    // Clean up connection-level references
+                    currentPlayer = null;
+                    currentRoomCode = null;
+                    break;
+                }
             }
         } catch (e) {
             console.error('Error handling WebSocket message:', e);
         }
     });
 
-    // Handle Connection Disconnect
+    // Handle Connection Disconnect (unintentional - browser close, F5, network loss)
     ws.on('close', () => {
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
 
         const lobby = lobbies[currentRoomCode];
+        const disconnectedName = currentPlayer.name;
         
-        // Remove or set offline
+        // Mark player as offline but KEEP them in the lobby for reconnection
         currentPlayer.isOnline = false;
+        currentPlayer.ws = null;
         
-        // Find if any online players left
+        // Find remaining online players
         const onlinePlayers = lobby.players.filter(p => p.isOnline);
 
         if (onlinePlayers.length === 0) {
-            // Delete lobby immediately if completely empty
-            delete lobbies[currentRoomCode];
-            console.log(`Lobby ${currentRoomCode} has been deleted (empty).`);
+            // No one online - set a cleanup timer to delete lobby after 60 seconds
+            // This gives players a window to reconnect (e.g., page refresh)
+            console.log(`All players offline in Lobby ${currentRoomCode}. Starting 60s cleanup timer...`);
+            lobby.cleanupTimer = setTimeout(() => {
+                if (lobbies[currentRoomCode]) {
+                    const stillOnline = lobbies[currentRoomCode].players.filter(p => p.isOnline);
+                    if (stillOnline.length === 0) {
+                        delete lobbies[currentRoomCode];
+                        console.log(`Lobby ${currentRoomCode} has been deleted (empty after timeout).`);
+                    }
+                }
+            }, 60000);
         } else {
-            // If host left, pass Host privileges to next online player
+            // If host disconnected, pass Host privileges to next online player
             if (currentPlayer.isHost) {
                 currentPlayer.isHost = false;
                 const newHost = onlinePlayers[0];
                 newHost.isHost = true;
-                console.log(`Host left in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
+                console.log(`Host disconnected in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
             }
 
-            // Remove completely from array to clean list, or keep for re-join?
-            // Clean from list is simpler for folk game
-            lobby.players = lobby.players.filter(p => p.id !== currentPlayer.id);
-
-            // Broadcast system message about player leaving
+            // Broadcast system message about player disconnecting (not "leaving")
             broadcastToLobby(currentRoomCode, {
                 type: 'CHAT_MESSAGE',
                 playerId: 'system',
                 playerName: 'Hệ thống',
-                playerColor: { value: '#ff3131' },
-                message: `Người chơi ${currentPlayer.name} đã rời phòng.`
+                playerColor: { value: '#ff8c00' },
+                message: `Người chơi ${disconnectedName} đã mất kết nối. ⚠️`
             });
 
-            // Re-broadcast updated player list
+            // Re-broadcast updated player list (player is still in list but isOnline=false)
+            // getSanitizedPlayers filters out offline players for the active view
             broadcastToLobby(currentRoomCode, {
                 type: 'PLAYER_LIST_UPDATE',
                 players: getSanitizedPlayers(lobby)
