@@ -517,6 +517,7 @@ wss.on('connection', (ws) => {
                     broadcastToLobby(currentRoomCode, { type: 'REVEAL_COUNTDOWN' });
 
                     // 2. Pre-calculate outcomes to be broadcast at the end of the 3s countdown
+                    const currentRoundType = lobby.roundType || 'nhieu-ra-it-bi';
                     const outcome = computeLobbyResults(lobby);
                     lobby.gameState = 'revealed';
 
@@ -527,7 +528,7 @@ wss.on('connection', (ws) => {
                             results: outcome.results,
                             ultimateLoserId: lobby.ultimateLoserId,
                             roundNumber: lobby.roundNumber,
-                            roundType: lobby.roundType
+                            roundType: currentRoundType
                         });
                     }, 4000); // 4 seconds covers the countdown visual (3s) + lật delay (1s)
 
@@ -712,6 +713,15 @@ wss.on('connection', (ws) => {
             // Remove completely from array to clean list, or keep for re-join?
             // Clean from list is simpler for folk game
             lobby.players = lobby.players.filter(p => p.id !== currentPlayer.id);
+
+            // Broadcast system message about player leaving
+            broadcastToLobby(currentRoomCode, {
+                type: 'CHAT_MESSAGE',
+                playerId: 'system',
+                playerName: 'Hệ thống',
+                playerColor: { value: '#ff3131' },
+                message: `Người chơi ${currentPlayer.name} đã rời phòng.`
+            });
 
             // Re-broadcast updated player list
             broadcastToLobby(currentRoomCode, {

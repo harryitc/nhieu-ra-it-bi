@@ -221,6 +221,12 @@
                                 <div class="waiting-spinner"></div>
                                 <p>Đang đợi chủ phòng bấm bắt đầu...</p>
                             </div>
+
+                            <!-- Out Room Button -->
+                            <button class="btn btn-danger btn-large btn-leave-room w-100" id="btn-lobby-leave" style="margin-top: 15px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); color: #f87171;">
+                                <span class="material-symbols-rounded">logout</span>
+                                Rời Phòng Chờ
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -243,9 +249,12 @@
                     <h2 id="current-mode-title">Nhiều Ra, Ít Bị</h2>
                     <p id="game-status-text">Đang đợi người chơi đưa ra lựa chọn</p>
                 </div>
-                <div class="audio-control">
+                <div class="game-header-controls" style="display: flex; gap: 10px; align-items: center;">
                     <button class="btn btn-icon" id="btn-toggle-sound" title="Bật/Tắt âm thanh">
                         <span class="material-symbols-rounded" id="sound-icon">volume_up</span>
+                    </button>
+                    <button class="btn btn-icon btn-leave-room" id="btn-game-leave" title="Rời phòng chơi">
+                        <span class="material-symbols-rounded" style="color: #ff5252;">logout</span>
                     </button>
                 </div>
             </header>
@@ -417,6 +426,19 @@
         </div>
     </div>
 
+    <!-- ================= FLOATING MATCH HISTORY SYSTEM ================= -->
+    <div id="app-history-wrapper" class="history-wrapper hidden">
+        <button id="history-toggle-btn" class="history-toggle-btn" title="Xem lịch sử trận đấu">
+            <span class="material-symbols-rounded">history</span>
+        </button>
+        
+        <div class="history-panel">
+            <div class="history-messages" id="history-messages-container">
+                <div class="history-system-message">Chưa có lịch sử vòng đấu.</div>
+            </div>
+        </div>
+    </div>
+
     <!-- ================= EMOJI REACTION PILL BAR ================= -->
     <div id="emoji-reaction-bar" class="emoji-reaction-bar hidden">
         <button class="emoji-btn" data-emoji="👍" title="Thích">👍</button>
@@ -441,8 +463,64 @@
             <div class="modal-body">
                 <p id="custom-modal-message">Nội dung thông báo...</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-primary btn-glow-effect" id="custom-modal-ok-btn">Xác Nhận</button>
+            <div class="modal-footer" style="display: flex; gap: 15px; justify-content: center; width: 100%;">
+                <button class="btn btn-secondary hidden" id="custom-modal-cancel-btn" style="min-width: 120px;">Hủy Bỏ</button>
+                <button class="btn btn-primary btn-glow-effect" id="custom-modal-ok-btn" style="min-width: 120px;">Xác Nhận</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= HISTORY DETAIL MODAL ================= -->
+    <div class="modal-overlay" id="history-detail-modal" style="display: none; z-index: 1100;">
+        <div class="glass-card history-modal-content animate-zoom-in" style="width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; padding: 25px; border-radius: 20px; background: rgba(15, 16, 28, 0.75); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);">
+            <div class="modal-header" style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; margin-bottom: 20px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <span class="material-symbols-rounded text-neon-blue" style="font-size: 28px; color: var(--neon-blue); text-shadow: 0 0 10px var(--neon-blue-glow);">history</span>
+                    <h2 style="font-size: 20px; font-weight: 700; margin: 0; color: white;">CHI TIẾT LỊCH SỬ TRẬN ĐẤU</h2>
+                </div>
+                <button id="history-modal-close-btn" class="btn btn-icon" style="background: transparent; border: none; color: rgba(255,255,255,0.7); cursor: pointer; display: flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 50%;">
+                    <span class="material-symbols-rounded" style="font-size: 24px;">close</span>
+                </button>
+            </div>
+            
+            <div class="history-modal-tabs" style="display: flex; gap: 10px; margin-bottom: 15px;">
+                <button class="btn btn-tab active" id="btn-tab-stats" style="flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+                    <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 5px; vertical-align: middle;">analytics</span>
+                    BẢNG ĐIỂM TỔNG HỢP
+                </button>
+                <button class="btn btn-tab" id="btn-tab-log" style="flex: 1; padding: 10px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s ease;">
+                    <span class="material-symbols-rounded" style="font-size: 16px; margin-right: 5px; vertical-align: middle;">receipt_long</span>
+                    NHẬT KÝ CHI TIẾT
+                </button>
+            </div>
+            
+            <div class="history-modal-body" style="flex-grow: 1; overflow-y: auto; padding-right: 5px; margin-bottom: 10px;">
+                <!-- Tab Stats content -->
+                <div id="tab-stats-content" class="tab-content">
+                    <div style="overflow-x: auto;">
+                        <table class="history-stats-table" style="width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; color: rgba(255,255,255,0.9);">
+                            <thead>
+                                <tr style="border-bottom: 1px solid rgba(255,255,255,0.15);">
+                                    <th style="padding: 10px 5px; font-weight: 600; color: var(--text-muted);">Người Chơi</th>
+                                    <th style="padding: 10px 5px; font-weight: 600; text-align: center; color: #10b981;">An Toàn</th>
+                                    <th style="padding: 10px 5px; font-weight: 600; text-align: center; color: #ef4444;">Bị Chọn</th>
+                                    <th style="padding: 10px 5px; font-weight: 600; text-align: center; color: #f43f5e;">Thua Chung Cuộc</th>
+                                    <th style="padding: 10px 5px; font-weight: 600; text-align: center; color: var(--neon-blue);">Tỉ Lệ Thắng</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-stats-tbody">
+                                <!-- Dynamic overall stats rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <!-- Tab Log content -->
+                <div id="tab-log-content" class="tab-content" style="display: none;">
+                    <div class="history-timeline" id="history-timeline-container" style="display: flex; flex-direction: column; gap: 15px;">
+                        <!-- Dynamic chronological log details -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>

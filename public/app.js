@@ -14,7 +14,10 @@ const STATE = {
     isCountingDown: false,
     audioCtx: null,
     chatExpanded: true,
-    unreadMessages: 0
+    unreadMessages: 0,
+    matchHistory: [],
+    playerStats: {},
+    deliberateLeave: false
 };
 
 // SVG Hand Assets (Identical to previous optimized premium versions)
@@ -393,14 +396,47 @@ function initWebSocket() {
     STATE.socket.onclose = () => {
         console.log('Disconnected from Server.');
         STATE.socket = null;
-        showModalAlert(
-            'Mất Kết Nối',
-            'Mất kết nối tới máy chủ! Vui lòng bấm Xác Nhận để tải lại trang chủ.',
-            'wifi_off',
-            () => {
-                window.location.reload();
-            }
-        );
+        
+        if (STATE.deliberateLeave) {
+            showToast('Bạn đã rời phòng chơi!', 'info');
+            
+            // Clean up window location search parameters
+            const url = new URL(window.location);
+            url.searchParams.delete('room');
+            window.history.replaceState({}, '', url.toString());
+            
+            // Reset local state completely
+            STATE.roomCode = null;
+            STATE.myPlayer = null;
+            STATE.players = [];
+            STATE.myChoice = null;
+            STATE.choiceChanges = 0;
+            STATE.isCountingDown = false;
+            STATE.matchHistory = [];
+            STATE.playerStats = {};
+            STATE.deliberateLeave = false;
+            
+            // Clear lists in HTML
+            const lobbyList = document.getElementById('lobby-players-list');
+            if (lobbyList) lobbyList.innerHTML = '';
+            const historyList = document.getElementById('history-messages-container');
+            if (historyList) historyList.innerHTML = '';
+            
+            // Go home
+            showScreen('welcome-screen');
+            
+            // Re-establish WebSocket connection immediately so they are ready to join/create a room again!
+            initWebSocket();
+        } else {
+            showModalAlert(
+                'Mất Kết Nối',
+                'Mất kết nối tới máy chủ! Vui lòng bấm Xác Nhận để tải lại trang chủ.',
+                'wifi_off',
+                () => {
+                    window.location.reload();
+                }
+            );
+        }
     };
 }
 
@@ -438,6 +474,9 @@ function handleServerMessage(msg) {
             // Show chat & reaction elements
             document.getElementById('app-chat-wrapper').classList.remove('hidden');
             document.getElementById('emoji-reaction-bar').classList.remove('hidden');
+
+            loadStoredHistoryAndStats();
+            document.getElementById('app-history-wrapper').classList.remove('hidden');
             break;
         }
 
@@ -484,6 +523,9 @@ function handleServerMessage(msg) {
             // Show chat & reaction elements
             document.getElementById('app-chat-wrapper').classList.remove('hidden');
             document.getElementById('emoji-reaction-bar').classList.remove('hidden');
+
+            loadStoredHistoryAndStats();
+            document.getElementById('app-history-wrapper').classList.remove('hidden');
             break;
         }
 
@@ -524,6 +566,7 @@ function handleServerMessage(msg) {
             if (me) {
                 STATE.myPlayer.isHost = me.isHost;
                 STATE.myPlayer.isSpectator = me.isSpectator || false;
+                STATE.myPlayer.isSafe = me.isSafe || false;
             }
 
             // Render updated state
@@ -539,74 +582,8 @@ function handleServerMessage(msg) {
 
         // --- GAME STARTED ---
         case 'GAME_STARTED': {
-            STATE.myChoice = null;
-            STATE.choiceChanges = 0;
-            STATE.isCountingDown = false;
-            
-            // UI elements reset
-            document.getElementById('game-room-code-label').textContent = STATE.roomCode;
-            
-            const modeTitles = {
-                'majority-out': 'Nhiều Ra, Ít Bị',
-                'white-out': 'Trắng Ra, Đen Bị',
-                'black-out': 'Đen Ra, Trắng Bị'
-            };
-            document.getElementById('current-mode-title').textContent = modeTitles[msg.gameMode];
-            document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
-            document.getElementById('countdown-text').style.display = 'none';
-
-            if (STATE.myPlayer.isSpectator) {
-                document.getElementById('game-status-text').textContent = 'Bạn đang quan sát trận đấu...';
-                document.getElementById('my-choice-bar').classList.add('hidden');
-                
-                document.getElementById('btn-reveal-all').classList.add('hidden');
-                const waitMsg = document.getElementById('player-waiting-reveal-msg');
-                waitMsg.classList.remove('hidden');
-                waitMsg.innerHTML = `
-                    <div class="waiting-spinner"></div>
-                    <p>Bạn đang xem trận đấu...</p>
-                `;
-            } else {
-                // Show selection bar, hide locked banner
-                document.getElementById('my-choice-bar').classList.remove('hidden');
-                document.getElementById('choice-submitted-msg').classList.add('hidden');
-                
-                const btnSap = document.getElementById('btn-choice-sap');
-                const btnNgua = document.getElementById('btn-choice-ngua');
-                if (btnSap) {
-                    btnSap.classList.remove('selected-sap', 'selected-ngua', 'disabled');
-                    btnSap.disabled = false;
-                    btnSap.classList.remove('hidden');
-                }
-                if (btnNgua) {
-                    btnNgua.classList.remove('selected-sap', 'selected-ngua', 'disabled');
-                    btnNgua.disabled = false;
-                    btnNgua.classList.remove('hidden');
-                }
-                
-                updateChoiceChangesUI();
-
-                // Set reveal button visibilities based on roles
-                const btnReveal = document.getElementById('btn-reveal-all');
-                const waitMsg = document.getElementById('player-waiting-reveal-msg');
-                
-                if (STATE.myPlayer.isHost) {
-                    btnReveal.classList.remove('hidden');
-                    btnReveal.classList.add('disabled');
-                    btnReveal.disabled = true;
-                    waitMsg.classList.add('hidden');
-                } else {
-                    btnReveal.classList.add('hidden');
-                    waitMsg.classList.remove('hidden');
-                    waitMsg.innerHTML = `
-                        <div class="waiting-spinner"></div>
-                        <p>Đợi lật tay...</p>
-                    `;
-                }
-            }
-
             showScreen('play-screen');
-            renderPlayersCircle();
+            setupActiveRound(msg.roundNumber, msg.roundType, msg.gameMode);
             
             // Init canvas confetti system
             const table = document.querySelector('.game-table');
@@ -621,13 +598,26 @@ function handleServerMessage(msg) {
             
             const btnSap = document.getElementById('btn-choice-sap');
             const btnNgua = document.getElementById('btn-choice-ngua');
+            const btnKeo = document.getElementById('btn-choice-keo');
+            const btnBua = document.getElementById('btn-choice-bua');
+            const btnBao = document.getElementById('btn-choice-bao');
+            
+            if (btnSap) btnSap.classList.remove('selected-sap');
+            if (btnNgua) btnNgua.classList.remove('selected-ngua');
+            if (btnKeo) btnKeo.classList.remove('selected-keo');
+            if (btnBua) btnBua.classList.remove('selected-bua');
+            if (btnBao) btnBao.classList.remove('selected-bao');
             
             if (msg.choice === 'sấp') {
                 if (btnSap) btnSap.classList.add('selected-sap');
-                if (btnNgua) btnNgua.classList.remove('selected-ngua');
-            } else {
+            } else if (msg.choice === 'ngửa') {
                 if (btnNgua) btnNgua.classList.add('selected-ngua');
-                if (btnSap) btnSap.classList.remove('selected-sap');
+            } else if (msg.choice === 'kéo') {
+                if (btnKeo) btnKeo.classList.add('selected-keo');
+            } else if (msg.choice === 'búa') {
+                if (btnBua) btnBua.classList.add('selected-bua');
+            } else if (msg.choice === 'bao') {
+                if (btnBao) btnBao.classList.add('selected-bao');
             }
             
             updateChoiceChangesUI();
@@ -642,71 +632,13 @@ function handleServerMessage(msg) {
 
         // --- REVEAL RESULTS ---
         case 'REVEAL_RESULTS': {
-            revealOutcomes(msg.isTie, msg.results);
+            revealOutcomes(msg.isTie, msg.results, msg.ultimateLoserId, msg.roundNumber, msg.roundType);
             break;
         }
 
         // --- ROUND RESET ---
         case 'ROUND_RESET': {
-            document.getElementById('result-overlay').classList.remove('active');
-            
-            // Re-trigger game start logic on same screen
-            STATE.myChoice = null;
-            STATE.choiceChanges = 0;
-            STATE.isCountingDown = false;
-            
-            document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
-            document.getElementById('countdown-text').style.display = 'none';
-            
-            if (STATE.myPlayer.isSpectator) {
-                document.getElementById('game-status-text').textContent = 'Bạn đang quan sát trận đấu...';
-                document.getElementById('my-choice-bar').classList.add('hidden');
-                
-                document.getElementById('btn-reveal-all').classList.add('hidden');
-                const waitMsg = document.getElementById('player-waiting-reveal-msg');
-                waitMsg.classList.remove('hidden');
-                waitMsg.innerHTML = `
-                    <div class="waiting-spinner"></div>
-                    <p>Bạn đang xem trận đấu...</p>
-                `;
-            } else {
-                document.getElementById('my-choice-bar').classList.remove('hidden');
-                document.getElementById('choice-submitted-msg').classList.add('hidden');
-                
-                const btnSap = document.getElementById('btn-choice-sap');
-                const btnNgua = document.getElementById('btn-choice-ngua');
-                if (btnSap) {
-                    btnSap.classList.remove('selected-sap', 'selected-ngua', 'disabled');
-                    btnSap.disabled = false;
-                    btnSap.classList.remove('hidden');
-                }
-                if (btnNgua) {
-                    btnNgua.classList.remove('selected-sap', 'selected-ngua', 'disabled');
-                    btnNgua.disabled = false;
-                    btnNgua.classList.remove('hidden');
-                }
-
-                updateChoiceChangesUI();
-
-                const btnReveal = document.getElementById('btn-reveal-all');
-                const waitMsg = document.getElementById('player-waiting-reveal-msg');
-                
-                if (STATE.myPlayer.isHost) {
-                    btnReveal.classList.remove('hidden');
-                    btnReveal.classList.add('disabled');
-                    btnReveal.disabled = true;
-                    waitMsg.classList.add('hidden');
-                } else {
-                    btnReveal.classList.add('hidden');
-                    waitMsg.classList.remove('hidden');
-                    waitMsg.innerHTML = `
-                        <div class="waiting-spinner"></div>
-                        <p>Đợi lật tay...</p>
-                    `;
-                }
-            }
-
-            renderPlayersCircle();
+            setupActiveRound(msg.roundNumber, msg.roundType);
             CONFETTI.stop();
             break;
         }
@@ -725,14 +657,22 @@ function handleServerMessage(msg) {
         case 'CHAT_MESSAGE': {
             const container = document.getElementById('chat-messages-container');
             if (container) {
-                const isMe = msg.playerId === STATE.myPlayer.id;
-                const msgRow = document.createElement('div');
-                msgRow.className = isMe ? 'chat-msg-row msg-me' : 'chat-msg-row';
-                msgRow.innerHTML = `
-                    <div class="chat-msg-sender" style="color: ${msg.playerColor.value}">${msg.playerName}</div>
-                    <div class="chat-msg-bubble">${escapeHtml(msg.message)}</div>
-                `;
-                container.appendChild(msgRow);
+                if (msg.playerId === 'system') {
+                    const msgRow = document.createElement('div');
+                    msgRow.className = 'chat-system-message';
+                    msgRow.textContent = msg.message;
+                    container.appendChild(msgRow);
+                    showToast(msg.message, 'info');
+                } else {
+                    const isMe = msg.playerId === STATE.myPlayer.id;
+                    const msgRow = document.createElement('div');
+                    msgRow.className = isMe ? 'chat-msg-row msg-me' : 'chat-msg-row';
+                    msgRow.innerHTML = `
+                        <div class="chat-msg-sender" style="color: ${msg.playerColor.value}">${msg.playerName}</div>
+                        <div class="chat-msg-bubble">${escapeHtml(msg.message)}</div>
+                    `;
+                    container.appendChild(msgRow);
+                }
                 container.scrollTop = container.scrollHeight;
                 
                 if (!STATE.chatExpanded) {
@@ -883,6 +823,327 @@ function escapeHtml(text) {
         .replace(/'/g, "&#039;");
 }
 
+/* ==========================================================================
+   MATCH HISTORY & DATA PERSISTENCE SERVICES
+   ========================================================================== */
+function loadStoredHistoryAndStats() {
+    if (!STATE.roomCode) return;
+    try {
+        const storedHistory = localStorage.getItem(`matchHistory_${STATE.roomCode}`);
+        const storedStats = localStorage.getItem(`playerStats_${STATE.roomCode}`);
+        if (storedHistory) {
+            STATE.matchHistory = JSON.parse(storedHistory);
+        } else {
+            STATE.matchHistory = [];
+        }
+        if (storedStats) {
+            STATE.playerStats = JSON.parse(storedStats);
+        } else {
+            STATE.playerStats = {};
+        }
+    } catch (err) {
+        console.error("Lỗi khi load dữ liệu lịch sử từ localStorage:", err);
+        STATE.matchHistory = [];
+        STATE.playerStats = {};
+    }
+    renderTransparentHistoryList();
+    renderHistoryModal();
+}
+
+function recordMatchHistory(isTie, results, ultimateLoserId, roundNumber, roundType) {
+    if (!STATE.roomCode) return;
+
+    // 1. Initialize stats for any player that doesn't have them yet
+    results.forEach(res => {
+        if (!res.isSpectator) {
+            if (!STATE.playerStats[res.id]) {
+                STATE.playerStats[res.id] = {
+                    id: res.id,
+                    name: res.name,
+                    color: res.color,
+                    roundsPlayed: 0,
+                    roundsSafe: 0,
+                    roundsLost: 0,
+                    tournamentsLost: 0
+                };
+            } else {
+                // Ensure name and color are updated in stats
+                STATE.playerStats[res.id].name = res.name;
+                STATE.playerStats[res.id].color = res.color;
+            }
+        }
+    });
+
+    // 2. Accumulate stats for actively participating players in this round
+    results.forEach(res => {
+        if (!res.isSpectator && res.choice !== null && res.choice !== undefined) {
+            const stats = STATE.playerStats[res.id];
+            if (stats) {
+                stats.roundsPlayed++;
+                if (!isTie) {
+                    if (res.status === 'safe') {
+                        stats.roundsSafe++;
+                    } else if (res.status === 'loser') {
+                        stats.roundsLost++;
+                    }
+                }
+            }
+        }
+    });
+
+    // 3. Accumulate tournamentsLost for the ultimate loser
+    if (ultimateLoserId) {
+        if (!STATE.playerStats[ultimateLoserId]) {
+            const loserRes = results.find(r => r.id === ultimateLoserId);
+            STATE.playerStats[ultimateLoserId] = {
+                id: ultimateLoserId,
+                name: loserRes ? loserRes.name : 'Người chơi',
+                color: loserRes ? loserRes.color : { value: '#ffffff' },
+                roundsPlayed: 0,
+                roundsSafe: 0,
+                roundsLost: 0,
+                tournamentsLost: 1
+            };
+        } else {
+            STATE.playerStats[ultimateLoserId].tournamentsLost++;
+        }
+    }
+
+    // 4. Pack round details
+    const now = new Date();
+    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    
+    const roundInfo = {
+        roundNumber: roundNumber,
+        roundType: roundType,
+        time: timeStr,
+        isTie: isTie,
+        ultimateLoserId: ultimateLoserId,
+        details: results.map(res => ({
+            id: res.id,
+            name: res.name,
+            choice: res.choice,
+            status: res.status,
+            color: res.color,
+            isSpectator: res.isSpectator,
+            isSafe: res.isSafe
+        }))
+    };
+
+    STATE.matchHistory.push(roundInfo);
+
+    // Save to localStorage
+    try {
+        localStorage.setItem(`matchHistory_${STATE.roomCode}`, JSON.stringify(STATE.matchHistory));
+        localStorage.setItem(`playerStats_${STATE.roomCode}`, JSON.stringify(STATE.playerStats));
+    } catch (e) {
+        console.error("Error saving match history to localStorage:", e);
+    }
+
+    // 5. Trigger rendering of HUD and modal
+    renderTransparentHistoryList();
+    renderHistoryModal();
+}
+
+function renderTransparentHistoryList() {
+    const container = document.getElementById('history-messages-container');
+    if (!container) return;
+
+    if (STATE.matchHistory.length === 0) {
+        container.innerHTML = '<div class="history-system-message">Chưa có lịch sử vòng đấu.</div>';
+        return;
+    }
+
+    container.innerHTML = '';
+
+    // Show up to the last 4 rounds
+    const recentRounds = STATE.matchHistory.slice(-4);
+    recentRounds.forEach(round => {
+        const row = document.createElement('div');
+        row.className = 'history-msg-row';
+        
+        let text = '';
+        if (round.isTie) {
+            text = `Vòng ${round.roundNumber}: Kết quả Hòa! 🤝`;
+        } else if (round.ultimateLoserId) {
+            const loserName = STATE.playerStats[round.ultimateLoserId]?.name || 'Người chơi';
+            text = `Vòng ${round.roundNumber}: Chung cuộc! 💥 ${loserName} thua cuộc!`;
+        } else {
+            const safeCount = round.details.filter(d => !d.isSpectator && d.choice !== null && d.status === 'safe').length;
+            const lostCount = round.details.filter(d => !d.isSpectator && d.choice !== null && d.status === 'loser').length;
+            text = `Vòng ${round.roundNumber}: ${safeCount} An Toàn, ${lostCount} Bị Chọn`;
+        }
+
+        row.innerHTML = `
+            <div class="history-msg-bubble">
+                <span style="color: var(--neon-blue); font-weight: bold; margin-right: 5px;">[${round.time}]</span>
+                <span>${escapeHtml(text)}</span>
+            </div>
+        `;
+        
+        row.addEventListener('click', () => {
+            openHistoryDetailModal();
+        });
+        
+        container.appendChild(row);
+    });
+
+    container.scrollTop = container.scrollHeight;
+}
+
+function renderHistoryModal() {
+    const tbody = document.getElementById('history-stats-tbody');
+    const timelineContainer = document.getElementById('history-timeline-container');
+    if (!tbody || !timelineContainer) return;
+
+    // --- 1. Render Stats Tab ---
+    tbody.innerHTML = '';
+    const sortedStats = Object.values(STATE.playerStats).sort((a, b) => {
+        if (a.tournamentsLost !== b.tournamentsLost) {
+            return a.tournamentsLost - b.tournamentsLost;
+        }
+        if (a.roundsSafe !== b.roundsSafe) {
+            return b.roundsSafe - a.roundsSafe;
+        }
+        return b.roundsPlayed - a.roundsPlayed;
+    });
+
+    if (sortedStats.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" style="text-align: center; padding: 20px; color: rgba(255,255,255,0.4);">
+                    Chưa có thống kê người chơi.
+                </td>
+            </tr>
+        `;
+    } else {
+        sortedStats.forEach(stat => {
+            const winRate = stat.roundsPlayed > 0 ? Math.round((stat.roundsSafe / stat.roundsPlayed) * 100) : 0;
+            const tr = document.createElement('tr');
+            tr.style.borderBottom = '1px solid rgba(255, 255, 255, 0.05)';
+            
+            tr.innerHTML = `
+                <td style="padding: 12px 5px; display: flex; align-items: center; gap: 8px;">
+                    <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background-color:${stat.color.value}; box-shadow: 0 0 8px ${stat.color.value};"></span>
+                    <span style="color:${stat.color.value}; font-weight: 600;">${escapeHtml(stat.name)}</span>
+                </td>
+                <td style="padding: 12px 5px; text-align: center; font-weight: 500; color: #10b981;">${stat.roundsSafe}</td>
+                <td style="padding: 12px 5px; text-align: center; font-weight: 500; color: #ef4444;">${stat.roundsLost}</td>
+                <td style="padding: 12px 5px; text-align: center; font-weight: bold; color: #f43f5e;">${stat.tournamentsLost}</td>
+                <td style="padding: 12px 5px; text-align: center; font-weight: bold; color: var(--neon-blue); text-shadow: 0 0 5px rgba(0, 240, 255, 0.3);">${winRate}%</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // --- 2. Render Timeline/Log Tab ---
+    timelineContainer.innerHTML = '';
+    
+    if (STATE.matchHistory.length === 0) {
+        timelineContainer.innerHTML = `
+            <div style="text-align: center; padding: 25px; color: rgba(255,255,255,0.4); font-size: 13px;">
+                Chưa có nhật ký vòng đấu nào. Chơi một ván để bắt đầu ghi nhận!
+            </div>
+        `;
+        return;
+    }
+
+    const timelineRounds = [...STATE.matchHistory].reverse();
+    timelineRounds.forEach(round => {
+        const card = document.createElement('div');
+        card.style.background = 'rgba(255, 255, 255, 0.02)';
+        card.style.border = '1px solid rgba(255, 255, 255, 0.05)';
+        card.style.borderRadius = '12px';
+        card.style.padding = '12px 15px';
+        card.style.display = 'flex';
+        card.style.flexDirection = 'column';
+        card.style.gap = '8px';
+
+        let titleText = '';
+        let headerStyle = '';
+        if (round.isTie) {
+            titleText = `Vòng ${round.roundNumber} - HÒA 🤝`;
+            headerStyle = 'color: #eab308; text-shadow: 0 0 5px rgba(234, 179, 8, 0.3);';
+        } else if (round.ultimateLoserId) {
+            const ultimateLoserName = STATE.playerStats[round.ultimateLoserId]?.name || 'Người chơi';
+            titleText = `Vòng ${round.roundNumber} - KẾT THÚC 👑 (Thua: ${ultimateLoserName})`;
+            headerStyle = 'color: #ef4444; text-shadow: 0 0 5px rgba(239, 68, 68, 0.3);';
+        } else {
+            titleText = `Vòng ${round.roundNumber} - TIẾP TỤC ⚔️`;
+            headerStyle = 'color: var(--neon-blue); text-shadow: 0 0 5px var(--neon-blue-glow);';
+        }
+
+        const modeName = round.roundType === 'oan-tu-ti' ? 'Oẳn Tù Tì' : 'Nhiều Ra Ít Bị';
+
+        let choicesHtml = '';
+        round.details.forEach(det => {
+            if (det.isSpectator) return;
+            if (det.choice === null || det.choice === undefined) return;
+            
+            let statusText = '';
+            let statusStyle = '';
+            
+            if (det.status === 'safe') {
+                statusText = 'An Toàn';
+                statusStyle = 'background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3);';
+            } else if (det.status === 'loser') {
+                statusText = 'Bị Chọn';
+                statusStyle = 'background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.3);';
+            } else {
+                statusText = 'Hòa';
+                statusStyle = 'background: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.1);';
+            }
+
+            const choiceStr = det.choice.charAt(0).toUpperCase() + det.choice.slice(1);
+
+            choicesHtml += `
+                <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; padding: 6px 0; border-bottom: 1px dashed rgba(255,255,255,0.03);">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="display:inline-block; width:6px; height:6px; border-radius:50%; background-color:${det.color.value};"></span>
+                        <span style="color: rgba(255,255,255,0.85);">${escapeHtml(det.name)}</span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="color: rgba(255,255,255,0.5); font-style: italic;">${choiceStr}</span>
+                        <span style="padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; ${statusStyle}">${statusText}</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.08); padding-bottom: 6px;">
+                <span style="font-weight: 700; font-size: 13px; ${headerStyle}">${titleText}</span>
+                <span style="font-size: 11px; color: rgba(255, 255, 255, 0.4);">${modeName} @ ${round.time}</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+                ${choicesHtml}
+            </div>
+        `;
+        timelineContainer.appendChild(card);
+    });
+}
+
+function openHistoryDetailModal() {
+    const modal = document.getElementById('history-detail-modal');
+    if (modal) {
+        renderHistoryModal();
+        modal.style.display = 'flex';
+        if (typeof SOUNDS !== 'undefined' && SOUNDS.playClick) {
+            SOUNDS.playClick();
+        }
+    }
+}
+
+function closeHistoryDetailModal() {
+    const modal = document.getElementById('history-detail-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        if (typeof SOUNDS !== 'undefined' && SOUNDS.playClick) {
+            SOUNDS.playClick();
+        }
+    }
+}
+
 function updateLobbyConfigText() {
     const textLimit = document.getElementById('lobby-config-changes-limit');
     if (!textLimit) return;
@@ -902,49 +1163,202 @@ function updateChoiceChangesUI() {
     
     const max = STATE.maxChanges;
     const cur = STATE.choiceChanges;
+    const isOanTuTi = STATE.roundType === 'oan-tu-ti';
+    const typeLabel = isOanTuTi ? 'búa kéo bao' : 'sấp ngửa';
     
     if (max === 0) {
-        hint.textContent = 'Thay đổi sấp ngửa: Không cho phép (Chỉ chọn 1 lần)';
+        hint.textContent = `Thay đổi ${typeLabel}: Không cho phép (Chỉ chọn 1 lần)`;
     } else if (max === 999) {
-        hint.textContent = `Thay đổi sấp ngửa: Vô hạn (Đã đổi ${cur} lần)`;
+        hint.textContent = `Thay đổi ${typeLabel}: Vô hạn (Đã đổi ${cur} lần)`;
     } else {
         const left = max - cur;
-        hint.textContent = `Thay đổi sấp ngửa: ${cur}/${max} lần (Còn lại ${left} lần)`;
+        hint.textContent = `Thay đổi ${typeLabel}: ${cur}/${max} lần (Còn lại ${left} lần)`;
     }
     
-    // Update disabled states of choice buttons if limits reached
     const btnSap = document.getElementById('btn-choice-sap');
     const btnNgua = document.getElementById('btn-choice-ngua');
+    const btnKeo = document.getElementById('btn-choice-keo');
+    const btnBua = document.getElementById('btn-choice-bua');
+    const btnBao = document.getElementById('btn-choice-bao');
+    const buttons = isOanTuTi ? [btnKeo, btnBua, btnBao] : [btnSap, btnNgua];
+    const otherButtons = isOanTuTi ? [btnSap, btnNgua] : [btnKeo, btnBua, btnBao];
     
     if (STATE.myChoice !== null && max !== 999 && cur >= max) {
-        if (btnSap) {
-            btnSap.classList.add('disabled');
-            btnSap.disabled = true;
-        }
-        if (btnNgua) {
-            btnNgua.classList.add('disabled');
-            btnNgua.disabled = true;
-        }
+        buttons.forEach(btn => {
+            if (btn) {
+                btn.classList.add('disabled');
+                btn.disabled = true;
+            }
+        });
         
         // Show lock banner if choice changes are exhausted
         const submitMsgText = document.getElementById('choice-locked-message-text');
-        const labelText = STATE.myChoice === 'sấp' ? 'Sấp (Úp tay)' : 'Ngửa (Trắng)';
         if (submitMsgText) {
-            submitMsgText.innerHTML = `Bạn đã chọn: <strong id="my-submitted-choice-text" style="color: ${STATE.myChoice === 'sấp' ? 'var(--neon-red)' : 'var(--neon-blue)'}">${labelText}</strong> (Đã khóa vĩnh viễn!)`;
+            let labelText = '';
+            let choiceColor = '#ffffff';
+            if (STATE.myChoice === 'sấp') {
+                labelText = 'Sấp (Úp tay)';
+                choiceColor = 'var(--neon-red)';
+            } else if (STATE.myChoice === 'ngửa') {
+                labelText = 'Ngửa (Trắng)';
+                choiceColor = 'var(--neon-blue)';
+            } else if (STATE.myChoice === 'kéo') {
+                labelText = 'Kéo (✌️)';
+                choiceColor = 'var(--neon-purple)';
+            } else if (STATE.myChoice === 'búa') {
+                labelText = 'Búa (✊)';
+                choiceColor = 'var(--neon-orange)';
+            } else if (STATE.myChoice === 'bao') {
+                labelText = 'Bao (🖐️)';
+                choiceColor = 'var(--neon-green)';
+            }
+            submitMsgText.innerHTML = `Bạn đã chọn: <strong id="my-submitted-choice-text" style="color: ${choiceColor}">${labelText}</strong> (Đã khóa vĩnh viễn!)`;
         }
         document.getElementById('choice-submitted-msg').classList.remove('hidden');
     } else {
-        if (btnSap) {
-            btnSap.classList.remove('disabled');
-            btnSap.disabled = false;
-        }
-        if (btnNgua) {
-            btnNgua.classList.remove('disabled');
-            btnNgua.disabled = false;
-        }
+        buttons.forEach(btn => {
+            if (btn) {
+                btn.classList.remove('disabled');
+                btn.disabled = false;
+            }
+        });
         // Hide lock banner so players can see the buttons
         document.getElementById('choice-submitted-msg').classList.add('hidden');
     }
+    
+    // Always disable and mute other choices from a different mode
+    otherButtons.forEach(btn => {
+        if (btn) {
+            btn.classList.add('disabled');
+            btn.disabled = true;
+        }
+    });
+}
+
+function setupActiveRound(roundNumber, roundType, gameMode) {
+    if (gameMode) {
+        STATE.currentMode = gameMode;
+    }
+    STATE.roundNumber = roundNumber || 1;
+    STATE.roundType = roundType || 'nhieu-ra-it-bi';
+    
+    STATE.myChoice = null;
+    STATE.choiceChanges = 0;
+    STATE.isCountingDown = false;
+    
+    // UI elements reset
+    document.getElementById('game-room-code-label').textContent = STATE.roomCode;
+    
+    const modeTitles = {
+        'majority-out': 'Nhiều Ra, Ít Bị',
+        'white-out': 'Trắng Ra, Đen Bị',
+        'black-out': 'Đen Ra, Trắng Bị'
+    };
+    
+    const modeTitleText = modeTitles[STATE.currentMode] || 'Nhiều Ra, Ít Bị';
+    if (STATE.roundType === 'oan-tu-ti') {
+        document.getElementById('current-mode-title').textContent = `Vòng ${STATE.roundNumber}: Chung Kết Oẳn Tù Tì`;
+    } else {
+        document.getElementById('current-mode-title').textContent = `Vòng ${STATE.roundNumber}: ${modeTitleText}`;
+    }
+    
+    document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
+    document.getElementById('countdown-text').style.display = 'none';
+    document.getElementById('result-overlay').classList.remove('active');
+    
+    // Toggle Choice Buttons containers
+    const sapNguaContainer = document.getElementById('choice-buttons-sap-ngua');
+    const oanTuTiContainer = document.getElementById('choice-buttons-oan-tu-ti');
+    
+    if (STATE.roundType === 'oan-tu-ti') {
+        if (sapNguaContainer) sapNguaContainer.classList.add('hidden');
+        if (oanTuTiContainer) {
+            oanTuTiContainer.classList.remove('hidden');
+            oanTuTiContainer.style.display = 'grid'; // Ensure grid layout
+        }
+    } else {
+        if (sapNguaContainer) {
+            sapNguaContainer.classList.remove('hidden');
+            sapNguaContainer.style.display = 'grid';
+        }
+        if (oanTuTiContainer) oanTuTiContainer.classList.add('hidden');
+    }
+    
+    // Clean all choice button styles
+    const btnSap = document.getElementById('btn-choice-sap');
+    const btnNgua = document.getElementById('btn-choice-ngua');
+    const btnKeo = document.getElementById('btn-choice-keo');
+    const btnBua = document.getElementById('btn-choice-bua');
+    const btnBao = document.getElementById('btn-choice-bao');
+    
+    [btnSap, btnNgua, btnKeo, btnBua, btnBao].forEach(btn => {
+        if (btn) {
+            btn.classList.remove('selected-sap', 'selected-ngua', 'selected-keo', 'selected-bua', 'selected-bao', 'disabled');
+            btn.disabled = false;
+        }
+    });
+    
+    // Check if spectator or safe or active
+    const isSpectator = STATE.myPlayer.isSpectator;
+    const isSafe = STATE.myPlayer.isSafe;
+    
+    if (isSpectator) {
+        document.getElementById('game-status-text').textContent = 'Bạn đang quan sát trận đấu...';
+        document.getElementById('my-choice-bar').classList.add('hidden');
+        
+        document.getElementById('btn-reveal-all').classList.add('hidden');
+        const waitMsg = document.getElementById('player-waiting-reveal-msg');
+        if (waitMsg) {
+            waitMsg.classList.remove('hidden');
+            waitMsg.innerHTML = `
+                <div class="waiting-spinner"></div>
+                <p>Bạn đang xem trận đấu...</p>
+            `;
+        }
+    } else if (isSafe) {
+        document.getElementById('game-status-text').textContent = 'Bạn đã AN TOÀN! Đang đợi các người chơi khác...';
+        document.getElementById('my-choice-bar').classList.add('hidden');
+        
+        document.getElementById('btn-reveal-all').classList.add('hidden');
+        const waitMsg = document.getElementById('player-waiting-reveal-msg');
+        if (waitMsg) {
+            waitMsg.classList.remove('hidden');
+            waitMsg.innerHTML = `
+                <div class="waiting-spinner"></div>
+                <p>Bạn đã AN TOÀN! Đang xem trận đấu...</p>
+            `;
+        }
+    } else {
+        // Active player!
+        document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
+        document.getElementById('my-choice-bar').classList.remove('hidden');
+        document.getElementById('choice-submitted-msg').classList.add('hidden');
+        
+        updateChoiceChangesUI();
+        
+        const btnReveal = document.getElementById('btn-reveal-all');
+        const waitMsg = document.getElementById('player-waiting-reveal-msg');
+        
+        if (STATE.myPlayer.isHost) {
+            if (btnReveal) {
+                btnReveal.classList.remove('hidden');
+                btnReveal.classList.add('disabled');
+                btnReveal.disabled = true;
+            }
+            if (waitMsg) waitMsg.classList.add('hidden');
+        } else {
+            if (btnReveal) btnReveal.classList.add('hidden');
+            if (waitMsg) {
+                waitMsg.classList.remove('hidden');
+                waitMsg.innerHTML = `
+                    <div class="waiting-spinner"></div>
+                    <p>Đợi lật tay...</p>
+                `;
+            }
+        }
+    }
+    
+    renderPlayersCircle();
 }
 
 /* ==========================================================================
@@ -1102,7 +1516,7 @@ function renderPlayersCircle() {
             const y = 50 + radius * Math.sin(angle);
 
             const node = document.createElement('div');
-            node.className = 'player-ring-node';
+            node.className = player.isSafe ? 'player-ring-node is-safe' : 'player-ring-node';
             node.id = `player-node-${player.id}`;
             node.style.left = `${x}%`;
             node.style.top = `${y}%`;
@@ -1116,6 +1530,11 @@ function renderPlayersCircle() {
             if (player.hasChosen) {
                 cardClass = 'chosen-hidden';
                 innerIcon = `<span class="material-symbols-rounded hand-icon-secret">lock</span>`;
+            }
+            
+            if (player.isSafe) {
+                cardClass = 'is-safe-card';
+                innerIcon = '';
             }
 
             node.innerHTML = `
@@ -1157,9 +1576,10 @@ function renderPlayersCircle() {
         document.getElementById('game-status-text').textContent = 'Bạn đang quan sát trận đấu...';
     } else if (STATE.myPlayer.isHost && !STATE.isCountingDown) {
         const btnReveal = document.getElementById('btn-reveal-all');
-        const allChosen = activePlayers.every(p => p.hasChosen);
+        const contenders = activePlayers.filter(p => !p.isSafe);
+        const allChosen = contenders.every(p => p.hasChosen);
         
-        if (allChosen && activePlayers.length >= 2) {
+        if (allChosen && contenders.length >= 2) {
             btnReveal.classList.remove('disabled');
             btnReveal.disabled = false;
             document.getElementById('game-status-text').textContent = 'TẤT CẢ ĐÃ CHỌN XONG! Hãy bấm lật tay!';
@@ -1171,10 +1591,14 @@ function renderPlayersCircle() {
     } else if (!STATE.isCountingDown) {
         // normal player choice status
         const me = activePlayers.find(p => p.id === STATE.myPlayer.id);
-        if (me && me.hasChosen) {
-            document.getElementById('game-status-text').textContent = 'Đã khóa lựa chọn! Đang đợi người khác...';
-        } else {
-            document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
+        if (me) {
+            if (me.isSafe) {
+                document.getElementById('game-status-text').textContent = 'Bạn đã AN TOÀN! Đang đợi các người chơi khác...';
+            } else if (me.hasChosen) {
+                document.getElementById('game-status-text').textContent = 'Đã khóa lựa chọn! Đang đợi người khác...';
+            } else {
+                document.getElementById('game-status-text').textContent = 'Đang đợi bạn bè đưa ra lựa chọn...';
+            }
         }
     }
 }
@@ -1217,7 +1641,8 @@ function executeRevealCountdown() {
     }, 950);
 }
 
-function revealOutcomes(isTie, results) {
+function revealOutcomes(isTie, results, ultimateLoserId, roundNumber, roundType) {
+    recordMatchHistory(isTie, results, ultimateLoserId, roundNumber, roundType);
     SOUNDS.playFlip();
 
     // 1. Render all hand cards 3D flip simultaneously
@@ -1259,15 +1684,15 @@ function revealOutcomes(isTie, results) {
             }
         });
         
-        // Show result spotlight dialog modal after 1.5s
+        // Show result spotlight dialog modal after 1.2s
         setTimeout(() => {
-            triggerResultOverlay(isTie, results);
+            triggerResultOverlay(isTie, results, ultimateLoserId, roundNumber, roundType);
         }, 1200);
 
     }, 800);
 }
 
-function triggerResultOverlay(isTie, results) {
+function triggerResultOverlay(isTie, results, ultimateLoserId, roundNumber, roundType) {
     const overlay = document.getElementById('result-overlay');
     const tieBox = document.getElementById('tie-result-container');
     const decisiveBox = document.getElementById('decisive-result-container');
@@ -1291,6 +1716,8 @@ function triggerResultOverlay(isTie, results) {
         playerMsg.classList.remove('hidden');
     }
 
+    const btnPlayAgain = document.getElementById('btn-play-again');
+
     if (isTie) {
         SOUNDS.playTie();
         tieBox.classList.remove('hidden');
@@ -1300,34 +1727,152 @@ function triggerResultOverlay(isTie, results) {
         iconBg.style.background = 'linear-gradient(135deg, #ffdf00 0%, #ff8c00 100%)';
         iconBg.style.boxShadow = '0 0 25px rgba(255, 223, 0, 0.35)';
         icon.textContent = 'handshake';
+
+        if (btnPlayAgain) {
+            btnPlayAgain.innerHTML = `
+                <span class="material-symbols-rounded">replay</span>
+                Chơi Tiếp Vòng Mới
+            `;
+        }
+        if (playerMsg) {
+            playerMsg.innerHTML = `
+                <div class="waiting-spinner"></div>
+                <p>Đang đợi chủ phòng thiết lập vòng tiếp theo...</p>
+            `;
+        }
     } else {
-        SOUNDS.playLose();
         tieBox.classList.add('hidden');
         decisiveBox.classList.remove('hidden');
 
-        title.textContent = 'Tìm thấy người bị chọn!';
-        iconBg.style.background = 'linear-gradient(135deg, #ff3131 0%, #7b0000 100%)';
-        iconBg.style.boxShadow = '0 0 25px rgba(255, 49, 49, 0.35)';
-        icon.textContent = 'heart_broken';
+        const loserHandIcon = decisiveBox.querySelector('.loser-hand-icon');
 
-        const losers = results.filter(r => r.status === 'loser');
-        const loserText = losers.map(l => l.name).join(', ');
-        
-        loserName.textContent = loserText;
-        loserName.style.color = losers[0].color.value;
+        if (ultimateLoserId !== null && ultimateLoserId !== undefined) {
+            // Tournament is over! Ultimate loser found!
+            SOUNDS.playLose(); // play game over/lose sound
+            
+            title.textContent = '💀 TRẬN ĐẤU KẾT THÚC 💀';
+            iconBg.style.background = 'linear-gradient(135deg, #ff3131 0%, #000000 100%)';
+            iconBg.style.boxShadow = '0 0 35px rgba(255, 49, 49, 0.6)';
+            icon.textContent = 'skull';
+
+            if (loserHandIcon) {
+                loserHandIcon.textContent = 'skull';
+            }
+
+            const decisiveTitle = decisiveBox.querySelector('.result-subtitle');
+            if (decisiveTitle) {
+                decisiveTitle.textContent = 'NGƯỜI THUA CHUNG CUỘC';
+            }
+
+            const loserBadge = decisiveBox.querySelector('.loser-badge');
+            if (loserBadge) {
+                loserBadge.textContent = 'CHUNG CUỘC';
+            }
+
+            const ultimateLoser = results.find(r => r.id === ultimateLoserId);
+            if (ultimateLoser) {
+                loserName.textContent = ultimateLoser.name;
+                loserName.style.color = ultimateLoser.color.value;
+            }
+
+            // Mega multi-confetti explosions across the canvas!
+            if (CONFETTI.canvas) {
+                const w = CONFETTI.canvas.width;
+                const h = CONFETTI.canvas.height;
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        CONFETTI.spawnAround(Math.random() * w, Math.random() * h, 30);
+                    }, i * 150);
+                }
+            }
+
+            if (btnPlayAgain) {
+                btnPlayAgain.innerHTML = `
+                    <span class="material-symbols-rounded">autorenew</span>
+                    Chơi Trận Mới
+                `;
+            }
+            if (playerMsg) {
+                playerMsg.innerHTML = `
+                    <div class="waiting-spinner"></div>
+                    <p>Đang đợi chủ phòng bắt đầu trận mới...</p>
+                `;
+            }
+
+        } else {
+            // Intermediary round results (tournament still in progress)
+            SOUNDS.playFlip();
+
+            const displayRound = roundNumber || STATE.roundNumber || 1;
+            title.textContent = `Kết quả Vòng ${displayRound}`;
+            iconBg.style.background = 'linear-gradient(135deg, #bd00ff 0%, #00f0ff 100%)';
+            iconBg.style.boxShadow = '0 0 25px rgba(189, 0, 255, 0.45)';
+            icon.textContent = 'check_circle';
+
+            if (loserHandIcon) {
+                loserHandIcon.textContent = 'sentiment_very_dissatisfied';
+            }
+
+            const decisiveTitle = decisiveBox.querySelector('.result-subtitle');
+            if (decisiveTitle) {
+                decisiveTitle.textContent = 'NGƯỜI CHƠI CHƯA AN TOÀN';
+            }
+
+            const loserBadge = decisiveBox.querySelector('.loser-badge');
+            if (loserBadge) {
+                loserBadge.textContent = 'CHƯA AN TOÀN';
+            }
+
+            const losers = results.filter(r => r.status === 'loser');
+            const loserText = losers.map(l => l.name).join(', ');
+            
+            loserName.textContent = loserText;
+            if (losers.length > 0) {
+                loserName.style.color = losers[0].color.value;
+            }
+
+            if (btnPlayAgain) {
+                btnPlayAgain.innerHTML = `
+                    <span class="material-symbols-rounded">skip_next</span>
+                    Đấu Vòng Tiếp Theo
+                `;
+            }
+            if (playerMsg) {
+                playerMsg.innerHTML = `
+                    <div class="waiting-spinner"></div>
+                    <p>Đang đợi chủ phòng thiết lập vòng tiếp theo...</p>
+                `;
+            }
+        }
 
         // Render summary items lists
         results.forEach(res => {
             const item = document.createElement('div');
             item.className = 'result-summary-item';
             
+            const isSpectator = res.isSpectator;
+            const isSafe = res.isSafe;
             const isLoser = res.status === 'loser';
-            const statusText = isLoser ? 'Bị Chọn' : 'An Toàn';
-            const statusClass = isLoser ? 'is-loser' : 'is-safe';
+            
+            let statusText = 'Đang Chơi';
+            let statusClass = 'is-playing';
+            
+            if (isSpectator) {
+                statusText = 'Quan Sát';
+                statusClass = 'is-spectator';
+            } else if (res.status === 'safe' || isSafe) {
+                statusText = 'An Toàn';
+                statusClass = 'is-safe';
+            } else if (isLoser) {
+                statusText = 'Bị Chọn';
+                statusClass = 'is-loser';
+            }
+            
+            let choiceText = res.choice ? res.choice.toUpperCase() : 'KHÔNG CHỌN';
 
             item.innerHTML = `
                 <span class="summary-item-name" style="color: ${res.color.value}">${res.name}</span>
-                <span class="summary-item-choice">(Chọn: ${res.choice.toUpperCase()})</span>
+                <span class="summary-item-choice">(Chọn: ${choiceText})</span>
                 <span class="summary-item-status ${statusClass}">${statusText}</span>
             `;
             summaryList.appendChild(item);
@@ -1488,6 +2033,18 @@ document.addEventListener('DOMContentLoaded', () => {
         SOUNDS.playClick();
         sendToServer({ type: 'SUBMIT_CHOICE', choice: 'ngửa' });
     });
+    document.getElementById('btn-choice-keo').addEventListener('click', () => {
+        SOUNDS.playClick();
+        sendToServer({ type: 'SUBMIT_CHOICE', choice: 'kéo' });
+    });
+    document.getElementById('btn-choice-bua').addEventListener('click', () => {
+        SOUNDS.playClick();
+        sendToServer({ type: 'SUBMIT_CHOICE', choice: 'búa' });
+    });
+    document.getElementById('btn-choice-bao').addEventListener('click', () => {
+        SOUNDS.playClick();
+        sendToServer({ type: 'SUBMIT_CHOICE', choice: 'bao' });
+    });
 
     // Host trigger reveal click
     document.getElementById('btn-reveal-all').addEventListener('click', () => {
@@ -1534,6 +2091,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // Load static SVG hand details inside choice panel bottom bars
     document.getElementById('svg-choice-sap-container').innerHTML = HAND_SVGS.sấp;
     document.getElementById('svg-choice-ngua-container').innerHTML = HAND_SVGS.ngửa;
+    document.getElementById('svg-choice-keo-container').innerHTML = HAND_SVGS.kéo;
+    document.getElementById('svg-choice-bua-container').innerHTML = HAND_SVGS.búa;
+    document.getElementById('svg-choice-bao-container').innerHTML = HAND_SVGS.bao;
 
     // ==========================================================================
     // FLOATING CHAT & EMOJI SYSTEM BINDINGS
@@ -1606,6 +2166,104 @@ document.addEventListener('DOMContentLoaded', () => {
             }, 100);
         });
     });
+
+    // Pre-fill playerName from localStorage
+    const savedPlayerName = localStorage.getItem('playerName');
+    if (savedPlayerName) {
+        const hostNameInput = document.getElementById('create-host-name');
+        const joinNameInput = document.getElementById('join-player-name');
+        if (hostNameInput) hostNameInput.value = savedPlayerName;
+        if (joinNameInput) joinNameInput.value = savedPlayerName;
+    }
+
+    // Save playerName on Create Room or Join Room click
+    const btnCreateRoom = document.getElementById('btn-create-room');
+    if (btnCreateRoom) {
+        btnCreateRoom.addEventListener('click', () => {
+            const hostName = document.getElementById('create-host-name').value.trim();
+            if (hostName) {
+                localStorage.setItem('playerName', hostName);
+            }
+        });
+    }
+
+    const btnJoinRoom = document.getElementById('btn-join-room');
+    if (btnJoinRoom) {
+        btnJoinRoom.addEventListener('click', () => {
+            const pName = document.getElementById('join-player-name').value.trim();
+            if (pName) {
+                localStorage.setItem('playerName', pName);
+            }
+        });
+    }
+
+    // Bind History Modal events
+    const tabStatsBtn = document.getElementById('btn-tab-stats');
+    const tabLogBtn = document.getElementById('btn-tab-log');
+    const tabStatsContent = document.getElementById('tab-stats-content');
+    const tabLogContent = document.getElementById('tab-log-content');
+
+    if (tabStatsBtn && tabLogBtn && tabStatsContent && tabLogContent) {
+        tabStatsBtn.addEventListener('click', () => {
+            tabStatsBtn.classList.add('active');
+            tabLogBtn.classList.remove('active');
+            tabStatsContent.style.display = 'block';
+            tabLogContent.style.display = 'none';
+            if (typeof SOUNDS !== 'undefined' && SOUNDS.playClick) {
+                SOUNDS.playClick();
+            }
+        });
+
+        tabLogBtn.addEventListener('click', () => {
+            tabLogBtn.classList.add('active');
+            tabStatsBtn.classList.remove('active');
+            tabLogContent.style.display = 'block';
+            tabStatsContent.style.display = 'none';
+            if (typeof SOUNDS !== 'undefined' && SOUNDS.playClick) {
+                SOUNDS.playClick();
+            }
+        });
+    }
+
+    const historyToggleBtn = document.getElementById('history-toggle-btn');
+    const historyModalCloseBtn = document.getElementById('history-modal-close-btn');
+
+    if (historyToggleBtn) {
+        historyToggleBtn.addEventListener('click', () => {
+            openHistoryDetailModal();
+        });
+    }
+
+    if (historyModalCloseBtn) {
+        historyModalCloseBtn.addEventListener('click', () => {
+            closeHistoryDetailModal();
+        });
+    }
+
+    // Bind Deliberate Leave Room events
+    document.querySelectorAll('.btn-leave-room').forEach(btn => {
+        btn.addEventListener('click', () => {
+            showModalAlert(
+                'Rời Phòng Chơi',
+                'Bạn có chắc chắn muốn rời khỏi phòng chơi hiện tại không? Mọi dữ liệu về kết quả tích lũy trong phòng này sẽ bị xóa.',
+                'logout',
+                () => {
+                    STATE.deliberateLeave = true;
+                    if (STATE.roomCode) {
+                        localStorage.removeItem(`matchHistory_${STATE.roomCode}`);
+                        localStorage.removeItem(`playerStats_${STATE.roomCode}`);
+                    }
+                    if (STATE.socket) {
+                        STATE.socket.close();
+                    }
+                },
+                true,
+                () => {
+                    // Cancel leave: do nothing
+                }
+            );
+        });
+    });
 });
 
 /* ==========================================================================
@@ -1645,13 +2303,15 @@ function showToast(message, type = 'info') {
 }
 
 let activeModalCallback = null;
+let activeModalCancelCallback = null;
 
-function showModalAlert(title, message, icon = 'info', onConfirm = null) {
+function showModalAlert(title, message, icon = 'info', onConfirm = null, showCancel = false, onCancel = null) {
     const backdrop = document.getElementById('custom-modal-backdrop');
     const titleEl = document.getElementById('custom-modal-title');
     const messageEl = document.getElementById('custom-modal-message');
     const iconEl = document.getElementById('custom-modal-icon');
     const okBtn = document.getElementById('custom-modal-ok-btn');
+    const cancelBtn = document.getElementById('custom-modal-cancel-btn');
 
     if (!backdrop || !titleEl || !messageEl || !iconEl || !okBtn) return;
 
@@ -1664,12 +2324,23 @@ function showModalAlert(title, message, icon = 'info', onConfirm = null) {
     if (icon === 'wifi_off' || icon === 'error') iconClass = 'icon-error';
     else if (icon === 'warning') iconClass = 'icon-warning';
     else if (icon === 'check_circle' || icon === 'success') iconClass = 'icon-success';
+    else if (icon === 'logout') iconClass = 'icon-error';
     
     iconEl.classList.add(iconClass);
     iconEl.textContent = icon;
 
+    // Show/hide cancel button
+    if (cancelBtn) {
+        if (showCancel) {
+            cancelBtn.classList.remove('hidden');
+        } else {
+            cancelBtn.classList.add('hidden');
+        }
+    }
+
     // Save callback
     activeModalCallback = onConfirm;
+    activeModalCancelCallback = onCancel;
 
     // Show modal
     backdrop.classList.remove('hidden');
@@ -1683,6 +2354,7 @@ function showModalAlert(title, message, icon = 'info', onConfirm = null) {
 // Bind confirmation button click globally once DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
     const okBtn = document.getElementById('custom-modal-ok-btn');
+    const cancelBtn = document.getElementById('custom-modal-cancel-btn');
     const backdrop = document.getElementById('custom-modal-backdrop');
     
     if (okBtn && backdrop) {
@@ -1694,6 +2366,22 @@ document.addEventListener('DOMContentLoaded', () => {
             if (activeModalCallback) {
                 const cb = activeModalCallback;
                 activeModalCallback = null;
+                activeModalCancelCallback = null;
+                cb();
+            }
+        });
+    }
+
+    if (cancelBtn && backdrop) {
+        cancelBtn.addEventListener('click', () => {
+            if (typeof SOUNDS !== 'undefined' && SOUNDS.playClick) {
+                SOUNDS.playClick();
+            }
+            backdrop.classList.add('hidden');
+            if (activeModalCancelCallback) {
+                const cb = activeModalCancelCallback;
+                activeModalCallback = null;
+                activeModalCancelCallback = null;
                 cb();
             }
         });

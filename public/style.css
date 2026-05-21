@@ -1472,6 +1472,14 @@ body {
     color: var(--neon-red);
 }
 
+.summary-item-status.is-spectator {
+    color: #a4b0be;
+}
+
+.summary-item-status.is-playing {
+    color: var(--neon-blue);
+}
+
 /* Tie Results styling */
 .shake-illustration {
     width: 80px;
@@ -2545,5 +2553,184 @@ body {
 
 .custom-modal-backdrop .modal-footer .btn {
     min-width: 140px;
+}
+
+/* ==========================================================================
+   FLOATING MATCH HISTORY SYSTEM
+   ========================================================================== */
+.history-wrapper {
+    position: fixed;
+    bottom: 25px;
+    left: 25px;
+    z-index: 1000;
+    font-family: var(--font-body);
+    width: 320px;
+    height: 320px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    pointer-events: none; /* Let clicks pass through empty spaces */
+    transition: var(--transition-smooth);
+}
+
+.history-wrapper.hidden {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(20px);
+}
+
+/* History Button Toggle - glassmorphic floating icon */
+.history-toggle-btn {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: rgba(20, 21, 31, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-bounce);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    pointer-events: auto;
+}
+
+.history-toggle-btn:hover {
+    transform: scale(1.1) rotate(-5deg);
+    color: white;
+    border-color: var(--neon-blue);
+    box-shadow: 0 0 15px var(--neon-blue-glow);
+    background: rgba(0, 240, 255, 0.1);
+}
+
+.history-toggle-btn span {
+    font-size: 24px;
+}
+
+/* History HUD Panel - transparent scrollable overlay */
+.history-panel {
+    position: absolute;
+    bottom: 70px;
+    left: 0;
+    width: 320px;
+    height: 250px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    pointer-events: none;
+    transition: var(--transition-smooth);
+}
+
+.history-messages {
+    flex-grow: 1;
+    padding: 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    scroll-behavior: smooth;
+    pointer-events: auto;
+    /* Elegant gradient fade mask at the top of history panel */
+    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.3) 15%, black 35%);
+    mask-image: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.3) 15%, black 35%);
+}
+
+.history-messages::-webkit-scrollbar {
+    width: 4px;
+}
+.history-messages::-webkit-scrollbar-track {
+    background: transparent;
+}
+.history-messages::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+.history-messages::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* History message item bubble */
+.history-msg-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 90%;
+    animation: messageIn 0.25s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards;
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.history-msg-bubble {
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: rgba(15, 16, 28, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 11px;
+    line-height: 1.4;
+    word-break: break-word;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    transition: all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.history-msg-row:hover .history-msg-bubble {
+    background: rgba(0, 240, 255, 0.1);
+    border-color: rgba(0, 240, 255, 0.2);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+    transform: scale(1.02);
+}
+
+.history-system-message {
+    align-self: flex-start;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+    background: rgba(255, 255, 255, 0.02);
+    padding: 6px 12px;
+    border-radius: 10px;
+    border: none;
+    text-align: center;
+    max-width: 90%;
+    margin: 4px 0;
+}
+
+/* Tab button inside modal */
+.btn-tab {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.6);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-tab.active {
+    background: rgba(0, 240, 255, 0.15) !important;
+    border-color: var(--neon-blue) !important;
+    color: #fff !important;
+    box-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+}
+
+.btn-tab:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.history-stats-table th {
+    border-bottom: 2px solid rgba(0, 240, 255, 0.15);
+}
+
+.history-stats-table td {
+    vertical-align: middle;
 }
 
