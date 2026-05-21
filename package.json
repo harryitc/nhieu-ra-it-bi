@@ -1,0 +1,19 @@
+{
+  "name": "nhieu-ra-it-bi-online",
+  "version": "1.0.0",
+  "description": "Trò chơi dân gian Nhiều Ra Ít Bị thời gian thực sử dụng WebSockets",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "author": "Antigravity Pair",
+  "license": "ISC"
+}
