@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 
-// Reuse the same WS endpoint as the main game
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
   if (import.meta.env.DEV) return `ws://${window.location.host}/ws`
@@ -9,11 +8,9 @@ function getWsUrl() {
   return `${proto}//${window.location.host}/`
 }
 
-// ─── Rounded rect helper (Safari compat) ──────────────────────────────────
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath()
-  ctx.moveTo(x + r, y)
-  ctx.lineTo(x + w - r, y)
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y)
   ctx.quadraticCurveTo(x + w, y, x + w, y + r)
   ctx.lineTo(x + w, y + h - r)
   ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
@@ -24,13 +21,43 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath()
 }
 
-// ─── Lobby screen ──────────────────────────────────────────────────────────
-function SurvivalLobby({ name, onNameChange, onJoin, onBack, error }) {
-  const handleKey = (e) => { if (e.key === 'Enter') onJoin() }
+const MODES = [
+  {
+    id: 'classic', icon: 'bubble_chart', label: 'Cổ Điển', badge: null,
+    sub: 'Thế giới mở · Không giới hạn',
+    desc: 'Ăn pellet và nuốt cell nhỏ hơn để lớn. Không có điều kiện thắng — chỉ cần thống trị bảng xếp hạng!',
+    color: '#2ed573', glow: 'rgba(46,213,115,0.35)', grad: ['#2ed573', '#1e90ff'],
+  },
+  {
+    id: 'battle', icon: 'crisis_alert', label: 'Chiến Trường', badge: '🔥 HOT',
+    sub: 'Vùng an toàn thu hẹp dần',
+    desc: 'Vùng xanh thu hẹp từ từ — đứng ngoài vùng sẽ mất máu. Người cuối cùng sống sót thắng vòng!',
+    color: '#ff4757', glow: 'rgba(255,71,87,0.35)', grad: ['#ff4757', '#c0392b'],
+  },
+  {
+    id: 'race', icon: 'bolt', label: 'Tốc Chiến', badge: '⚡ NHANH',
+    sub: 'Đạt 500 khối lượng trước',
+    desc: 'Chạy đua đến mục tiêu 500 khối lượng. Chết thì về điểm xuất phát! Ai về đích trước thắng vòng.',
+    color: '#ffa502', glow: 'rgba(255,165,2,0.35)', grad: ['#ffa502', '#e67e22'],
+  },
+  {
+    id: 'hunger', icon: 'local_fire_department', label: 'Đói Liên Hồi', badge: '😈 KHÓ',
+    sub: 'Khối lượng tự giảm liên tục',
+    desc: 'Cell của bạn đang đói — khối lượng giảm dần theo thời gian. Phải ăn không ngừng để tồn tại!',
+    color: '#a29bfe', glow: 'rgba(162,155,254,0.35)', grad: ['#a29bfe', '#6c5ce7'],
+  },
+]
+
+function hexToRgb(hex) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16)
+  return `${r},${g},${b}`
+}
+
+function LobbyScreen({ name, onNameChange, onNext, onBack, error }) {
   return (
     <div className="app-container">
       <div className="bg-glow bg-glow-1" /><div className="bg-glow bg-glow-2" /><div className="bg-glow bg-glow-3" />
-      <div className="hub-page animate-fade-in" style={{ maxWidth: 460, width: '100%' }}>
+      <div className="hub-page animate-fade-in" style={{ maxWidth: 440, width: '100%' }}>
         <header className="app-header">
           <button className="hub-back-btn" onClick={onBack} title="Về trang chủ">
             <span className="material-symbols-rounded">arrow_back</span>
@@ -38,39 +65,27 @@ function SurvivalLobby({ name, onNameChange, onJoin, onBack, error }) {
           <div className="logo-container" style={{ background: 'linear-gradient(135deg,#2ed573,#1e90ff)' }}>
             <span className="material-symbols-rounded logo-icon">bubble_chart</span>
           </div>
-          <h1 className="app-title" style={{ fontSize: 32 }}>SINH TỒN 2D</h1>
-          <p className="app-subtitle">Ăn pellet để lớn lên — nuốt cell nhỏ hơn để tồn tại!</p>
+          <h1 className="app-title" style={{ fontSize: 30 }}>SINH TỒN 2D</h1>
+          <p className="app-subtitle">Ăn pellet · Nuốt cell nhỏ · Thống trị bảng xếp hạng</p>
         </header>
-
         <div className="glass-card" style={{ padding: '28px 24px' }}>
           <div className="form-group">
             <label>Tên của bạn</label>
             <div className="input-wrapper">
               <span className="material-symbols-rounded input-icon">person</span>
               <input
-                type="text" placeholder="Ví dụ: Hoàng, Hải..."
+                type="text" placeholder="Ví dụ: Hoàng, Hải, Luna..."
                 maxLength={15} value={name}
                 onChange={e => onNameChange(e.target.value)}
-                onKeyDown={handleKey}
+                onKeyDown={e => e.key === 'Enter' && onNext()}
                 autoFocus
               />
             </div>
           </div>
-
-          {error && <p style={{ color: '#f87171', fontSize: 13, marginBottom: 12 }}>{error}</p>}
-
-          <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 12, padding: '12px 14px', marginBottom: 20 }}>
-            <p style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', lineHeight: 1.8 }}>
-              🟢 Di chuyển bằng <strong>chuột / ngón tay</strong><br/>
-              🔵 Ăn <strong>pellet màu</strong> để tăng khối lượng<br/>
-              🔴 <strong>Nuốt</strong> cell nhỏ hơn 90% kích thước của bạn<br/>
-              ⚠️ Tránh bị cell lớn hơn nuốt!
-            </p>
-          </div>
-
-          <button className="btn btn-primary btn-large btn-glow-effect w-100" onClick={onJoin}>
-            <span className="material-symbols-rounded">play_arrow</span>
-            Vào Trò Chơi
+          {error && <p style={{ color:'#f87171', fontSize:13, marginBottom:12 }}>{error}</p>}
+          <button className="btn btn-primary btn-large btn-glow-effect w-100" onClick={onNext}>
+            <span className="material-symbols-rounded">arrow_forward</span>
+            Chọn Chế Độ Chơi
           </button>
         </div>
       </div>
@@ -78,173 +93,229 @@ function SurvivalLobby({ name, onNameChange, onJoin, onBack, error }) {
   )
 }
 
-// ─── Main component ────────────────────────────────────────────────────────
+function ModeSelect({ onSelect, onBack }) {
+  const [hover, setHover] = useState(null)
+  return (
+    <div className="app-container">
+      <div className="bg-glow bg-glow-1" /><div className="bg-glow bg-glow-2" /><div className="bg-glow bg-glow-3" />
+      <div className="hub-page animate-fade-in" style={{ maxWidth: 540, width: '100%' }}>
+        <header className="app-header">
+          <button className="hub-back-btn" onClick={onBack}>
+            <span className="material-symbols-rounded">arrow_back</span>
+          </button>
+          <h1 className="app-title" style={{ fontSize: 26 }}>CHỌN CHẾ ĐỘ CHƠI</h1>
+          <p className="app-subtitle">4 chế độ — mỗi chế độ một phong cách chiến đấu khác nhau</p>
+        </header>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {MODES.map(m => (
+            <button
+              key={m.id}
+              onClick={() => onSelect(m.id)}
+              onMouseEnter={() => setHover(m.id)}
+              onMouseLeave={() => setHover(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 16,
+                background: hover === m.id ? `rgba(${hexToRgb(m.color)},0.12)` : 'rgba(255,255,255,0.03)',
+                border: `1.5px solid ${hover === m.id ? m.color : 'rgba(255,255,255,0.07)'}`,
+                borderRadius: 16, padding: '16px 20px', cursor: 'pointer',
+                textAlign: 'left', transition: 'all 0.2s ease',
+                boxShadow: hover === m.id ? `0 0 24px ${m.glow}` : 'none',
+              }}
+            >
+              <div style={{
+                width: 52, height: 52, borderRadius: 14, flexShrink: 0,
+                background: `linear-gradient(135deg,${m.grad[0]},${m.grad[1]})`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                boxShadow: `0 4px 16px ${m.glow}`,
+              }}>
+                <span className="material-symbols-rounded" style={{ fontSize: 26, color: '#fff' }}>{m.icon}</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                  <span style={{ fontFamily: 'Outfit,sans-serif', fontWeight: 700, fontSize: 16, color: '#fff' }}>{m.label}</span>
+                  {m.badge && (
+                    <span style={{
+                      background: `linear-gradient(135deg,${m.grad[0]},${m.grad[1]})`,
+                      color: '#fff', fontSize: 10, fontWeight: 700,
+                      padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap',
+                    }}>{m.badge}</span>
+                  )}
+                </div>
+                <p style={{ color: m.color, fontSize: 11, fontWeight: 600, margin: '0 0 4px', opacity: 0.9 }}>{m.sub}</p>
+                <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, margin: 0, lineHeight: 1.5 }}>{m.desc}</p>
+              </div>
+              <span className="material-symbols-rounded" style={{ color: m.color, fontSize: 22, flexShrink: 0, opacity: hover === m.id ? 1 : 0.3 }}>chevron_right</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Survival() {
   const navigate = useNavigate()
-  const [screen, setScreen] = useState('lobby')    // 'lobby'|'playing'|'dead'
-  const [playerName, setPlayerName] = useState('')
-  const [deathInfo, setDeathInfo] = useState(null)
-  const [connError, setConnError] = useState('')
 
-  const canvasRef       = useRef(null)
-  const wsRef           = useRef(null)
-  const stateRef        = useRef({ players: [], food: [], leaderboard: [], tick: 0 })
-  const myIdRef         = useRef(null)
-  const worldSizeRef    = useRef(6000)
-  const mouseRef        = useRef({ x: 0, y: 0 })
-  const rafRef          = useRef(null)
-  const inputTimerRef   = useRef(null)
-  const screenRef       = useRef('lobby')
+  const [screen,       setScreen]       = useState('lobby')
+  const [playerName,   setPlayerName]   = useState('')
+  const [deathInfo,    setDeathInfo]    = useState(null)
+  const [connError,    setConnError]    = useState('')
+  const [raceToast,    setRaceToast]    = useState(null)
 
-  // keep screenRef in sync for use inside RAF callbacks
+  const canvasRef     = useRef(null)
+  const wsRef         = useRef(null)
+  const stateRef      = useRef({ players:[], food:[], leaderboard:[], tick:0, zone:null, winner:null, resetCountdown:0, raceTarget:null, roundNum:1, mode:'classic' })
+  const myIdRef       = useRef(null)
+  const modeRef       = useRef('classic')
+  const worldSizeRef  = useRef(6000)
+  const mouseRef      = useRef({ x: 0, y: 0 })
+  const rafRef        = useRef(null)
+  const inputTimerRef = useRef(null)
+  const roundNumRef   = useRef(1)
+  const screenRef     = useRef('lobby')
+  const raceToastTimerRef = useRef(null)
+
   useEffect(() => { screenRef.current = screen }, [screen])
 
-  const connectAndJoin = useCallback((name) => {
+  const connectAndJoin = useCallback((name, mode) => {
     setConnError('')
+    if (wsRef.current) { wsRef.current.onclose = null; wsRef.current.close() }
     const ws = new WebSocket(getWsUrl())
     wsRef.current = ws
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: 'SURVIVAL_JOIN', playerName: name }))
-    }
+    ws.onopen = () => { ws.send(JSON.stringify({ type: 'SURVIVAL_JOIN', playerName: name, mode })) }
     ws.onmessage = (e) => {
       const msg = JSON.parse(e.data)
       switch (msg.type) {
         case 'SURVIVAL_JOINED':
-          myIdRef.current   = msg.playerId
+          myIdRef.current = msg.playerId
+          modeRef.current = msg.mode
           worldSizeRef.current = msg.worldSize
+          roundNumRef.current = 1
           setScreen('playing')
           break
         case 'SURVIVAL_STATE':
           stateRef.current = msg
+          if (msg.roundNum > roundNumRef.current) {
+            roundNumRef.current = msg.roundNum
+            if (screenRef.current === 'dead') { setDeathInfo(null); setScreen('playing') }
+          }
           break
         case 'SURVIVAL_DIED':
-          setDeathInfo(msg)
-          setScreen('dead')
+          if (msg.mode === 'race') {
+            const t = msg.killedBy === 'auto' ? 'Tự chết — hồi sinh sau 2s...' : `Bị ${msg.killedBy} nuốt — hồi sinh sau 2s...`
+            setRaceToast(t)
+            clearTimeout(raceToastTimerRef.current)
+            raceToastTimerRef.current = setTimeout(() => setRaceToast(null), 3000)
+          } else {
+            setDeathInfo(msg); setScreen('dead')
+          }
           break
       }
     }
     ws.onerror = () => setConnError('Không kết nối được máy chủ. Thử lại sau.')
-    ws.onclose = () => {
-      if (screenRef.current === 'playing') setScreen('lobby')
-    }
+    ws.onclose = () => { if (screenRef.current === 'playing') setScreen('lobby') }
   }, [])
 
-  // ── Send movement input ──────────────────────────────────────────────────
   useEffect(() => {
     if (screen !== 'playing') { clearInterval(inputTimerRef.current); return }
     inputTimerRef.current = setInterval(() => {
-      const ws = wsRef.current
-      if (!ws || ws.readyState !== 1) return
-      const canvas = canvasRef.current
-      if (!canvas) return
+      const ws = wsRef.current; if (!ws || ws.readyState !== 1) return
+      const canvas = canvasRef.current; if (!canvas) return
       const dx = mouseRef.current.x - canvas.width / 2
       const dy = mouseRef.current.y - canvas.height / 2
       const len = Math.sqrt(dx * dx + dy * dy)
       if (len < 8) return
       ws.send(JSON.stringify({ type: 'SURVIVAL_INPUT', dx: dx / len, dy: dy / len }))
-    }, 40) // 25 Hz
+    }, 40)
     return () => clearInterval(inputTimerRef.current)
   }, [screen])
 
-  // ── Canvas render loop ───────────────────────────────────────────────────
   useEffect(() => {
-    if (screen === 'lobby') { cancelAnimationFrame(rafRef.current); return }
-    const canvas = canvasRef.current
-    if (!canvas) return
+    if (screen !== 'playing' && screen !== 'dead') { cancelAnimationFrame(rafRef.current); return }
+    const canvas = canvasRef.current; if (!canvas) return
     const ctx = canvas.getContext('2d')
-
     const resize = () => { canvas.width = window.innerWidth; canvas.height = window.innerHeight }
-    resize()
-    window.addEventListener('resize', resize)
-
-    const GRID = 70
+    resize(); window.addEventListener('resize', resize)
 
     const render = () => {
-      const { players, food, leaderboard } = stateRef.current
-      const W = canvas.width, H = canvas.height
-      const WORLD = worldSizeRef.current
+      const { players, food, leaderboard, zone, winner, resetCountdown, raceTarget, mode } = stateRef.current
+      const W = canvas.width, H = canvas.height, WORLD = worldSizeRef.current
       const me = players.find(p => p.id === myIdRef.current)
+      const myMass = me ? Math.floor(me.r * me.r / 25) : 0
 
       ctx.clearRect(0, 0, W, H)
-
-      // ── Background ─────────────────────────────────────────────────────
-      ctx.fillStyle = '#08090f'
-      ctx.fillRect(0, 0, W, H)
+      ctx.fillStyle = '#08090f'; ctx.fillRect(0, 0, W, H)
 
       const camX = me ? me.x - W / 2 : WORLD / 2 - W / 2
       const camY = me ? me.y - H / 2 : WORLD / 2 - H / 2
 
-      ctx.save()
-      ctx.translate(-camX, -camY)
+      ctx.save(); ctx.translate(-camX, -camY)
 
       // Grid
-      ctx.strokeStyle = 'rgba(255,255,255,0.035)'
-      ctx.lineWidth = 1
-      const gx0 = Math.floor(camX / GRID) * GRID
-      const gy0 = Math.floor(camY / GRID) * GRID
-      for (let x = gx0; x < camX + W + GRID; x += GRID) {
-        ctx.beginPath(); ctx.moveTo(x, camY); ctx.lineTo(x, camY + H); ctx.stroke()
-      }
-      for (let y = gy0; y < camY + H + GRID; y += GRID) {
-        ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + W, y); ctx.stroke()
-      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1
+      const gx0 = Math.floor(camX / 70) * 70, gy0 = Math.floor(camY / 70) * 70
+      for (let x = gx0; x < camX + W + 70; x += 70) { ctx.beginPath(); ctx.moveTo(x, camY); ctx.lineTo(x, camY + H); ctx.stroke() }
+      for (let y = gy0; y < camY + H + 70; y += 70) { ctx.beginPath(); ctx.moveTo(camX, y); ctx.lineTo(camX + W, y); ctx.stroke() }
 
-      // World border glow
-      ctx.strokeStyle = 'rgba(0,240,255,0.25)'
-      ctx.lineWidth = 6
-      ctx.shadowColor = '#00f0ff'
-      ctx.shadowBlur = 12
-      ctx.strokeRect(0, 0, WORLD, WORLD)
-      ctx.shadowBlur = 0
+      // World border
+      ctx.strokeStyle = 'rgba(0,240,255,0.25)'; ctx.lineWidth = 6
+      ctx.shadowColor = '#00f0ff'; ctx.shadowBlur = 14
+      ctx.strokeRect(0, 0, WORLD, WORLD); ctx.shadowBlur = 0
+
+      // Battle zone
+      if (zone) {
+        ctx.save()
+        ctx.beginPath()
+        ctx.rect(camX - 10, camY - 10, W + 20, H + 20)
+        ctx.arc(zone.cx, zone.cy, zone.r, 0, Math.PI * 2, true)
+        ctx.fillStyle = 'rgba(255,49,49,0.17)'; ctx.fill('evenodd')
+        ctx.restore()
+
+        ctx.beginPath(); ctx.arc(zone.cx, zone.cy, zone.r, 0, Math.PI * 2)
+        ctx.strokeStyle = 'rgba(255,49,49,0.9)'; ctx.lineWidth = 4
+        ctx.shadowColor = '#ff4757'; ctx.shadowBlur = 20
+        ctx.stroke(); ctx.shadowBlur = 0
+
+        // "NGUY HIỂM" label on zone border
+        const labelAngle = -Math.PI / 4
+        const labelX = zone.cx + Math.cos(labelAngle) * zone.r
+        const labelY = zone.cy + Math.sin(labelAngle) * zone.r
+        if (labelX > camX && labelX < camX + W && labelY > camY && labelY < camY + H) {
+          ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'
+          ctx.fillStyle = '#ff4757'; ctx.fillText('⚠ VÙNG NGUY HIỂM', labelX, labelY - 8)
+          ctx.textAlign = 'left'
+        }
+      }
 
       // Food pellets
       for (const f of food) {
-        ctx.beginPath()
-        ctx.arc(f.x, f.y, 6, 0, Math.PI * 2)
-        ctx.fillStyle = f.color
-        ctx.shadowColor = f.color
-        ctx.shadowBlur = 8
-        ctx.fill()
+        ctx.beginPath(); ctx.arc(f.x, f.y, 6, 0, Math.PI * 2)
+        ctx.fillStyle = f.color; ctx.shadowColor = f.color; ctx.shadowBlur = 8; ctx.fill()
       }
       ctx.shadowBlur = 0
 
-      // Players (small first so big renders on top)
+      // Players (small-first)
       const sorted = [...players].sort((a, b) => a.r - b.r)
       for (const p of sorted) {
         if (!p.alive) continue
         const isMe = p.id === myIdRef.current
 
-        // Fill
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
-        ctx.fillStyle = p.color + '28'
-        ctx.fill()
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+        ctx.fillStyle = p.color + '28'; ctx.fill()
 
-        // Border
-        ctx.beginPath()
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
-        ctx.strokeStyle = isMe ? '#ffffff' : p.color
-        ctx.lineWidth   = isMe ? 3 : 2
-        ctx.shadowColor = p.color
-        ctx.shadowBlur  = isMe ? 18 : 8
-        ctx.stroke()
-        ctx.shadowBlur  = 0
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+        ctx.strokeStyle = isMe ? '#ffffff' : p.color; ctx.lineWidth = isMe ? 3 : 2
+        ctx.shadowColor = p.color; ctx.shadowBlur = isMe ? 22 : 8
+        ctx.stroke(); ctx.shadowBlur = 0
 
-        // Name + mass label
         if (p.r > 14) {
-          const fontSize = Math.max(10, Math.min(p.r * 0.45, 18))
-          ctx.font = `bold ${fontSize}px Inter, sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'middle'
-          ctx.fillStyle = '#ffffff'
-          ctx.shadowColor = 'rgba(0,0,0,0.8)'
-          ctx.shadowBlur = 4
-          ctx.fillText(p.name, p.x, p.y - fontSize * 0.25)
-          if (p.r > 28) {
-            ctx.font = `${Math.max(9, fontSize * 0.7)}px Inter, sans-serif`
-            ctx.fillStyle = 'rgba(255,255,255,0.7)'
-            ctx.fillText(p.r < 200 ? `${Math.floor(p.r ** 2 / 25)}` : '🏆', p.x, p.y + fontSize * 0.8)
+          const fs = Math.max(10, Math.min(p.r * 0.44, 18))
+          ctx.font = `bold ${fs}px Inter,sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+          ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 4
+          ctx.fillText(p.name, p.x, p.y - fs * 0.28)
+          if (p.r > 26) {
+            ctx.font = `${Math.max(9, fs * 0.7)}px Inter,sans-serif`; ctx.fillStyle = 'rgba(255,255,255,0.6)'
+            ctx.fillText(Math.floor(p.r * p.r / 25), p.x, p.y + fs * 0.75)
           }
           ctx.shadowBlur = 0
         }
@@ -252,203 +323,231 @@ export default function Survival() {
 
       ctx.restore()
 
-      // ── HUD: Leaderboard (top-right) ──────────────────────────────────
+      // Hunger: low-mass danger vignette
+      if (mode === 'hunger' && me) {
+        const dangerLevel = Math.max(0, 1 - (myMass - 10) / 28)
+        if (dangerLevel > 0) {
+          const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 240)
+          const grad = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.25, W/2, H/2, Math.min(W,H)*0.72)
+          grad.addColorStop(0, 'rgba(255,49,49,0)')
+          grad.addColorStop(1, `rgba(255,49,49,${dangerLevel * 0.48 * pulse})`)
+          ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H)
+        }
+      }
+
+      // Winner banner
+      if (winner) {
+        const bH = 90
+        ctx.fillStyle = 'rgba(8,9,15,0.92)'; ctx.fillRect(0, H/2 - bH/2 - 10, W, bH + 20)
+        ctx.font = 'bold 30px Outfit,sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+        ctx.fillStyle = winner.color; ctx.shadowColor = winner.color; ctx.shadowBlur = 28
+        ctx.fillText(`🏆  ${winner.name} thắng vòng này!`, W/2, H/2 - 10)
+        ctx.shadowBlur = 0
+        if (resetCountdown > 0) {
+          ctx.font = '14px Inter,sans-serif'; ctx.fillStyle = 'rgba(255,255,255,0.45)'
+          ctx.fillText(`Vòng mới bắt đầu sau ${resetCountdown}s...`, W/2, H/2 + 28)
+        }
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+      }
+
+      // HUD: Leaderboard
       if (leaderboard.length > 0) {
-        const lbX = W - 188, lbY = 16
-        const lbH = 36 + leaderboard.length * 24
-
-        ctx.fillStyle = 'rgba(8,9,15,0.82)'
-        roundRect(ctx, lbX, lbY, 172, lbH, 12)
-        ctx.fill()
-        ctx.strokeStyle = 'rgba(255,255,255,0.07)'
-        ctx.lineWidth = 1
-        roundRect(ctx, lbX, lbY, 172, lbH, 12)
-        ctx.stroke()
-
-        ctx.fillStyle = 'rgba(0,240,255,0.8)'
-        ctx.font = 'bold 10px Inter, sans-serif'
-        ctx.textAlign = 'left'
+        const lbX = W - 192, lbY = 16, lbW = 176, lbH = 38 + leaderboard.length * 24
+        ctx.fillStyle = 'rgba(8,9,15,0.84)'
+        roundRect(ctx, lbX, lbY, lbW, lbH, 12); ctx.fill()
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1
+        roundRect(ctx, lbX, lbY, lbW, lbH, 12); ctx.stroke()
+        ctx.fillStyle = 'rgba(0,240,255,0.75)'; ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'left'
         ctx.fillText('BẢNG XẾP HẠNG', lbX + 12, lbY + 20)
-
-        leaderboard.forEach((entry, i) => {
-          const isMe = entry.id === myIdRef.current
-          const yy = lbY + 38 + i * 24
-          ctx.fillStyle = entry.color
-          ctx.beginPath(); ctx.arc(lbX + 18, yy, 5, 0, Math.PI * 2); ctx.fill()
-          ctx.fillStyle = isMe ? '#ffffff' : 'rgba(255,255,255,0.75)'
-          ctx.font = `${isMe ? 'bold ' : ''}12px Inter, sans-serif`
+        leaderboard.forEach((e, i) => {
+          const isMe = e.id === myIdRef.current, yy = lbY + 38 + i * 24
+          ctx.fillStyle = e.color; ctx.beginPath(); ctx.arc(lbX + 18, yy - 2, 5, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = isMe ? '#fff' : 'rgba(255,255,255,0.7)'
+          ctx.font = `${isMe ? 'bold ' : ''}12px Inter,sans-serif`
+          const nameStr = e.name.length > 9 ? e.name.slice(0,9) + '…' : e.name
+          ctx.fillText(`${i + 1}. ${nameStr}`, lbX + 28, yy + 3)
+          ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'right'
+          ctx.fillText(e.mass, lbX + lbW - 8, yy + 3)
           ctx.textAlign = 'left'
-          ctx.fillText(`${i + 1}. ${entry.name.slice(0, 10)}`, lbX + 28, yy + 4)
-          ctx.fillStyle = 'rgba(255,255,255,0.4)'
-          ctx.font = '11px Inter, sans-serif'
-          ctx.textAlign = 'right'
-          ctx.fillText(entry.mass, lbX + 160, yy + 4)
         })
+      }
+
+      // HUD: mode label top-center
+      if ((mode === 'battle' || mode === 'race') && !winner) {
+        const mInfo = MODES.find(m => m.id === mode)
+        ctx.fillStyle = mInfo.color + 'cc'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'
+        ctx.fillText(`${mInfo.label.toUpperCase()} · VÒNG ${stateRef.current.roundNum}`, W/2, 22)
         ctx.textAlign = 'left'
       }
 
-      // ── HUD: My stats (bottom-left) ───────────────────────────────────
-      if (me) {
-        const myMass = Math.floor(me.r * me.r / 25)
-        const rank   = leaderboard.findIndex(e => e.id === myIdRef.current) + 1
-
-        ctx.fillStyle = 'rgba(8,9,15,0.82)'
-        roundRect(ctx, 16, H - 82, 160, 66, 12)
-        ctx.fill()
-
-        ctx.fillStyle = 'rgba(255,255,255,0.4)'
-        ctx.font = '10px Inter, sans-serif'
+      // HUD: Race progress bar
+      if (mode === 'race' && raceTarget && me) {
+        const prog = Math.min(1, myMass / raceTarget)
+        const bX = W/2 - 160, bY = H - 46, bW = 320, bH = 14
+        ctx.fillStyle = 'rgba(8,9,15,0.84)'
+        roundRect(ctx, bX - 10, bY - 24, bW + 20, bH + 36, 10); ctx.fill()
+        ctx.fillStyle = '#ffa502'; ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'center'
+        const rem = Math.max(0, raceTarget - myMass)
+        ctx.fillText(rem > 0 ? `CÒN ${rem} KHỐI LƯỢNG ĐỂ THẮNG` : '🏆 ĐÃ ĐẠT MỤC TIÊU!', W/2, bY - 8)
+        ctx.fillStyle = 'rgba(255,255,255,0.08)'; roundRect(ctx, bX, bY, bW, bH, 6); ctx.fill()
+        if (prog > 0) { ctx.fillStyle = '#ffa502'; roundRect(ctx, bX, bY, bW * prog, bH, 6); ctx.fill() }
+        ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(bX + bW * 0.5 - 1, bY, 2, bH)
         ctx.textAlign = 'left'
-        ctx.fillText('KHỐI LƯỢNG', 28, H - 62)
+      }
 
-        ctx.fillStyle = me.color
-        ctx.font = 'bold 28px Outfit, sans-serif'
-        ctx.fillText(myMass, 28, H - 34)
-
-        if (rank > 0) {
-          ctx.fillStyle = 'rgba(255,255,255,0.35)'
-          ctx.font = '10px Inter, sans-serif'
-          ctx.fillText(`Hạng #${rank}/${leaderboard.length}`, 28, H - 18)
-        }
+      // HUD: My stats
+      if (me) {
+        const rank = leaderboard.findIndex(e => e.id === myIdRef.current) + 1
+        const mInfo = MODES.find(m => m.id === mode) || MODES[0]
+        ctx.fillStyle = 'rgba(8,9,15,0.84)'
+        roundRect(ctx, 16, H - 90, 164, 74, 12); ctx.fill()
+        ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'left'
+        ctx.fillText('KHỐI LƯỢNG', 28, H - 70)
+        ctx.fillStyle = mInfo.color; ctx.font = 'bold 30px Outfit,sans-serif'
+        ctx.fillText(myMass, 28, H - 42)
+        ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px Inter,sans-serif'
+        ctx.fillText(rank > 0 ? `Hạng #${rank}/${leaderboard.length}` : 'Chờ leaderboard...', 28, H - 24)
       }
 
       rafRef.current = requestAnimationFrame(render)
     }
 
     rafRef.current = requestAnimationFrame(render)
-    return () => {
-      cancelAnimationFrame(rafRef.current)
-      window.removeEventListener('resize', resize)
-    }
+    return () => { cancelAnimationFrame(rafRef.current); window.removeEventListener('resize', resize) }
   }, [screen])
-
-  // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleJoin = () => {
-    const name = playerName.trim() || 'Người chơi'
-    connectAndJoin(name)
-  }
-
-  const handleRespawn = () => {
-    setDeathInfo(null)
-    const ws = wsRef.current
-    if (ws && ws.readyState === 1) {
-      ws.send(JSON.stringify({ type: 'SURVIVAL_RESPAWN' }))
-      setScreen('playing')
-    } else {
-      connectAndJoin(playerName || 'Người chơi')
-    }
-  }
 
   const handleLeave = () => {
     const ws = wsRef.current
-    if (ws) {
-      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'SURVIVAL_LEAVE' }))
-      ws.close()
-    }
+    if (ws) { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'SURVIVAL_LEAVE' })); ws.close() }
     navigate('/')
   }
 
-  const handleMouseMove = (e) => {
-    mouseRef.current = { x: e.clientX, y: e.clientY }
+  const handleRespawn = () => {
+    const ws = wsRef.current
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'SURVIVAL_RESPAWN' }))
+    setDeathInfo(null); setScreen('playing')
   }
 
-  const handleTouchMove = (e) => {
-    e.preventDefault()
-    const t = e.touches[0]
-    mouseRef.current = { x: t.clientX, y: t.clientY }
-  }
-
-  // ── Render ────────────────────────────────────────────────────────────────
   if (screen === 'lobby') {
     return (
-      <SurvivalLobby
-        name={playerName} onNameChange={setPlayerName}
-        onJoin={handleJoin} onBack={() => navigate('/')}
-        error={connError}
+      <LobbyScreen
+        name={playerName} onNameChange={setPlayerName} error={connError}
+        onNext={() => { if (!playerName.trim()) setPlayerName('Người chơi'); setScreen('modeSelect') }}
+        onBack={() => navigate('/')}
       />
     )
   }
+
+  if (screen === 'modeSelect') {
+    return (
+      <ModeSelect
+        onSelect={mode => {
+          const name = playerName.trim() || 'Người chơi'
+          connectAndJoin(name, mode)
+        }}
+        onBack={() => setScreen('lobby')}
+      />
+    )
+  }
+
+  const currentModeInfo = MODES.find(m => m.id === modeRef.current) || MODES[0]
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#08090f', overflow: 'hidden' }}>
       <canvas
         ref={canvasRef}
         style={{ display: 'block', width: '100%', height: '100%' }}
-        onMouseMove={handleMouseMove}
-        onTouchMove={handleTouchMove}
+        onMouseMove={e => { mouseRef.current = { x: e.clientX, y: e.clientY } }}
+        onTouchMove={e => { e.preventDefault(); const t = e.touches[0]; mouseRef.current = { x: t.clientX, y: t.clientY } }}
       />
 
-      {/* Leave button */}
-      <button
-        onClick={handleLeave}
-        style={{
-          position: 'fixed', top: 16, left: 16, zIndex: 200,
-          background: 'rgba(8,9,15,0.85)', border: '1px solid rgba(255,255,255,0.1)',
-          color: 'rgba(255,255,255,0.7)', borderRadius: 10, padding: '8px 14px',
-          cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6,
-          backdropFilter: 'blur(12px)'
-        }}
-      >
-        <span className="material-symbols-rounded" style={{ fontSize: 18 }}>arrow_back</span>
+      <button onClick={handleLeave} style={{
+        position:'fixed', top:16, left:16, zIndex:200,
+        background:'rgba(8,9,15,0.85)', border:'1px solid rgba(255,255,255,0.1)',
+        color:'rgba(255,255,255,0.7)', borderRadius:10, padding:'8px 14px',
+        cursor:'pointer', fontSize:13, display:'flex', alignItems:'center', gap:6,
+        backdropFilter:'blur(12px)',
+      }}>
+        <span className="material-symbols-rounded" style={{ fontSize:18 }}>arrow_back</span>
         Thoát
       </button>
 
-      {/* Player count */}
       <div style={{
-        position: 'fixed', top: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 200,
-        background: 'rgba(8,9,15,0.75)', border: '1px solid rgba(255,255,255,0.07)',
-        color: 'rgba(255,255,255,0.5)', borderRadius: 20, padding: '6px 16px',
-        fontSize: 12, backdropFilter: 'blur(12px)'
+        position:'fixed', top:16, left:'50%', transform:'translateX(-50%)', zIndex:200,
+        display:'flex', alignItems:'center', gap:8,
+        background:'rgba(8,9,15,0.78)', border:'1px solid rgba(255,255,255,0.07)',
+        borderRadius:20, padding:'6px 14px', backdropFilter:'blur(12px)',
       }}>
-        {stateRef.current.players?.filter(p => p.alive).length ?? 0} người đang chơi
+        <span className="material-symbols-rounded" style={{ fontSize:16, color: currentModeInfo.color }}>{currentModeInfo.icon}</span>
+        <span style={{ fontSize:12, color: currentModeInfo.color, fontWeight:600 }}>{currentModeInfo.label}</span>
+        <span style={{ fontSize:11, color:'rgba(255,255,255,0.35)' }}>·</span>
+        <span style={{ fontSize:11, color:'rgba(255,255,255,0.4)' }}>
+          {(stateRef.current.players?.filter(p => p.alive).length ?? 0)} người đang chơi
+        </span>
       </div>
 
-      {/* Death overlay */}
+      {raceToast && (
+        <div style={{
+          position:'fixed', bottom:110, left:'50%', transform:'translateX(-50%)', zIndex:250,
+          background:'rgba(255,165,2,0.14)', border:'1px solid rgba(255,165,2,0.4)',
+          color:'#ffa502', borderRadius:24, padding:'10px 20px', fontSize:13, fontWeight:600,
+          backdropFilter:'blur(12px)', whiteSpace:'nowrap',
+        }}>
+          ⚡ {raceToast}
+        </div>
+      )}
+
       {screen === 'dead' && (
         <div style={{
-          position: 'fixed', inset: 0, zIndex: 300,
-          background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center'
+          position:'fixed', inset:0, zIndex:300,
+          background:'rgba(0,0,0,0.78)', backdropFilter:'blur(10px)',
+          display:'flex', alignItems:'center', justifyContent:'center',
         }}>
           <div style={{
-            background: 'rgba(10,11,20,0.95)', border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: 24, padding: '40px 36px', textAlign: 'center',
-            maxWidth: 340, width: '90%',
-            boxShadow: '0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(255,49,49,0.1)'
+            background:'rgba(10,11,20,0.96)', border:'1px solid rgba(255,255,255,0.08)',
+            borderRadius:24, padding:'40px 36px', textAlign:'center',
+            maxWidth:360, width:'90%',
+            boxShadow:'0 24px 60px rgba(0,0,0,0.6), 0 0 40px rgba(255,49,49,0.07)',
           }}>
-            <div style={{ fontSize: 52, marginBottom: 16 }}>💀</div>
-            <h2 style={{ fontFamily: 'Outfit,sans-serif', fontSize: 26, fontWeight: 800, marginBottom: 8, color: '#f87171' }}>
-              Bạn đã bị ăn!
+            <div style={{ fontSize:52, marginBottom:16 }}>
+              {modeRef.current === 'hunger' ? '🥵' : '💀'}
+            </div>
+            <h2 style={{ fontFamily:'Outfit,sans-serif', fontSize:26, fontWeight:800, marginBottom:8, color:'#f87171' }}>
+              {modeRef.current === 'hunger' ? 'Bạn đã chết đói!' : 'Bạn đã bị ăn!'}
             </h2>
-            {deathInfo?.killedBy && (
-              <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginBottom: 6 }}>
-                Bởi <strong style={{ color: '#fff' }}>{deathInfo.killedBy}</strong>
+            {deathInfo?.killedBy && !['đói','vùng nguy hiểm'].includes(deathInfo.killedBy) && (
+              <p style={{ color:'rgba(255,255,255,0.5)', fontSize:14, marginBottom:6 }}>
+                Bởi <strong style={{ color:'#fff' }}>{deathInfo.killedBy}</strong>
               </p>
             )}
-            {deathInfo?.mass && (
-              <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, marginBottom: 24 }}>
-                Khối lượng đạt được: <strong style={{ color: '#fdcb6e' }}>{deathInfo.mass}</strong>
+            {deathInfo?.killedBy === 'vùng nguy hiểm' && (
+              <p style={{ color:'rgba(255,71,87,0.8)', fontSize:13, marginBottom:6 }}>☠️ Bị vùng nguy hiểm tiêu diệt</p>
+            )}
+            {deathInfo?.mass != null && (
+              <p style={{ color:'rgba(255,255,255,0.35)', fontSize:13, marginBottom:4 }}>
+                Khối lượng đạt được: <strong style={{ color:'#fdcb6e' }}>{deathInfo.mass}</strong>
               </p>
             )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <button
-                onClick={handleRespawn}
-                style={{
-                  background: 'linear-gradient(135deg,#2ed573,#1e90ff)', border: 'none',
-                  color: '#fff', borderRadius: 12, padding: '13px 0', width: '100%',
-                  fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'Outfit,sans-serif'
-                }}
-              >
-                <span style={{ marginRight: 8 }}>▶</span>Chơi Lại
-              </button>
-              <button
-                onClick={handleLeave}
-                style={{
-                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                  color: 'rgba(255,255,255,0.6)', borderRadius: 12, padding: '11px 0', width: '100%',
-                  fontSize: 14, cursor: 'pointer', fontFamily: 'Outfit,sans-serif'
-                }}
-              >
+            {modeRef.current === 'battle' && (
+              <p style={{ color:'rgba(255,255,255,0.38)', fontSize:13, marginBottom:20, marginTop:8 }}>
+                Đang chờ vòng tiếp theo bắt đầu tự động...
+              </p>
+            )}
+            <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:16 }}>
+              {(modeRef.current === 'classic' || modeRef.current === 'hunger') && (
+                <button onClick={handleRespawn} style={{
+                  background:`linear-gradient(135deg,${currentModeInfo.grad[0]},${currentModeInfo.grad[1]})`,
+                  border:'none', color:'#fff', borderRadius:12, padding:'13px 0', width:'100%',
+                  fontSize:15, fontWeight:700, cursor:'pointer', fontFamily:'Outfit,sans-serif',
+                }}>
+                  ▶ Chơi Lại
+                </button>
+              )}
+              <button onClick={handleLeave} style={{
+                background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.1)',
+                color:'rgba(255,255,255,0.6)', borderRadius:12, padding:'11px 0', width:'100%',
+                fontSize:14, cursor:'pointer', fontFamily:'Outfit,sans-serif',
+              }}>
                 Về Trang Chủ
               </button>
             </div>

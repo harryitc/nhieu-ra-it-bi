@@ -23,35 +23,74 @@ const PORT = process.env.PORT || 3000;
 const lobbies = {};
 
 // ==========================================================================
-// SURVIVAL GAME (agar.io-like)
+// SURVIVAL GAME — 4 modes: classic | battle | race | hunger
 // ==========================================================================
 const SURV = {
     WORLD: 6000,
-    MAX_FOOD: 350,
-    FOOD_MASS: 1,
-    START_MASS: 15,
-    TICK_RATE: 30,
-    BASE_SPEED: 140, // world units / second at start mass
+    MAX_FOOD:             { classic: 350, battle: 280, race: 420, hunger: 500 },
+    FOOD_MASS:            1,
+    START_MASS:           15,
+    TICK_RATE:            30,
+    BASE_SPEED:           140,      // world-units/sec at start mass
+    // Battle Royale
+    BATTLE_ZONE_START:    25,       // seconds before zone shrinks
+    BATTLE_ZONE_SHRINK:   170,      // seconds to reach min radius
+    BATTLE_ZONE_INIT:     0.68,     // fraction of WORLD for initial radius
+    BATTLE_ZONE_MIN:      120,      // minimum zone radius
+    BATTLE_ZONE_DMG:      0.5,      // mass/sec outside zone
+    BATTLE_RESET_DELAY:   6,        // seconds between rounds
+    // Race
+    RACE_TARGET:          500,
+    RACE_RESET_DELAY:     6,
+    RACE_RESPAWN_DELAY:   2,        // seconds before auto-respawn after dying
+    // Hunger
+    HUNGER_DECAY:         0.007,    // base fraction of mass lost per second
+    HUNGER_MIN_MASS:      12,       // below this → die
     COLORS: ['#ff4757','#2ed573','#1e90ff','#ffa502','#ff6b81','#a29bfe',
              '#00cec9','#fd79a8','#e17055','#6c5ce7','#00b894','#fdcb6e',
              '#55efc4','#74b9ff','#dfe6e9','#fab1a0']
 };
 
-const survWorld = {
-    players: new Map(),   // id → player obj
-    food:    new Map(),   // id → { id, x, y, color }
-    nextFoodId: 0,
-    tick: 0,
-    interval: null
-};
+const SURV_VALID_MODES = new Set(['classic','battle','race','hunger']);
 
 function survRadius(mass) { return Math.sqrt(mass) * 5; }
 function survSpeed(mass)  { return SURV.BASE_SPEED / Math.max(1, Math.pow(mass / SURV.START_MASS, 0.35)); }
+function survRandPos()    { return 200 + Math.random() * (SURV.WORLD - 400); }
 
-function survSpawnFood() {
-    while (survWorld.food.size < SURV.MAX_FOOD) {
-        const id = 'f' + survWorld.nextFoodId++;
-        survWorld.food.set(id, {
+function createSurvWorld(mode) {
+    return {
+        mode,
+        players:    new Map(),
+        food:       new Map(),
+        nextFoodId: 0,
+        tick:       0,
+        interval:   null,
+        roundNum:   1,
+        winner:     null,   // { name, color, mass } — set when round ends
+        resetAt:    0,      // tick number to trigger round reset (0 = none)
+        zone: mode === 'battle' ? {
+            cx: SURV.WORLD / 2, cy: SURV.WORLD / 2,
+            r:  SURV.WORLD * SURV.BATTLE_ZONE_INIT,
+            minR: SURV.BATTLE_ZONE_MIN,
+            startTick: SURV.BATTLE_ZONE_START * SURV.TICK_RATE,
+            shrinkRate: (SURV.WORLD * SURV.BATTLE_ZONE_INIT - SURV.BATTLE_ZONE_MIN)
+                        / (SURV.BATTLE_ZONE_SHRINK * SURV.TICK_RATE)
+        } : null
+    };
+}
+
+// Lazily created world instances (one per mode)
+const survWorlds = {};
+function getSurvWorld(mode) {
+    if (!survWorlds[mode]) survWorlds[mode] = createSurvWorld(mode);
+    return survWorlds[mode];
+}
+
+function survSpawnFood(world) {
+    const cap = SURV.MAX_FOOD[world.mode] || 350;
+    while (world.food.size < cap) {
+        const id = 'f' + world.nextFoodId++;
+        world.food.set(id, {
             id,
             x: 50 + Math.random() * (SURV.WORLD - 100),
             y: 50 + Math.random() * (SURV.WORLD - 100),
@@ -60,12 +99,62 @@ function survSpawnFood() {
     }
 }
 
-function survTick() {
-    const DT = 1 / SURV.TICK_RATE;
-    survWorld.tick++;
+function survResetRound(world) {
+    world.winner  = null;
+    world.resetAt = 0;
+    world.roundNum++;
+    if (world.zone) {
+        world.zone.r         = SURV.WORLD * SURV.BATTLE_ZONE_INIT;
+        world.zone.startTick = world.tick + SURV.BATTLE_ZONE_START * SURV.TICK_RATE;
+    }
+    for (const p of world.players.values()) {
+        p.x = survRandPos(); p.y = survRandPos();
+        p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
+        p.dx = 0; p.dy = 0; p.alive = true;
+        delete p.respawnAt;
+    }
+    console.log(`[SURVIVAL:${world.mode}] Round ${world.roundNum} started`);
+}
 
-    // Move players
-    for (const p of survWorld.players.values()) {
+function survKillPlayer(world, p, killedBy) {
+    p.alive = false;
+    if (p.ws) {
+        sendToPlayer(p.ws, {
+            type: 'SURVIVAL_DIED',
+            killedBy,
+            mass: Math.floor(p.mass),
+            mode: world.mode
+        });
+    }
+    // Race mode: schedule auto-respawn
+    if (world.mode === 'race') {
+        p.respawnAt = world.tick + SURV.RACE_RESPAWN_DELAY * SURV.TICK_RATE;
+    }
+}
+
+function survTick(world) {
+    const DT = 1 / SURV.TICK_RATE;
+    world.tick++;
+
+    // ── Auto-reset countdown ─────────────────────────────────────────────
+    if (world.resetAt > 0 && world.tick >= world.resetAt) {
+        survResetRound(world);
+    }
+
+    // ── Race: auto-respawn dead players ──────────────────────────────────
+    if (world.mode === 'race') {
+        for (const p of world.players.values()) {
+            if (!p.alive && p.respawnAt && world.tick >= p.respawnAt) {
+                p.x = survRandPos(); p.y = survRandPos();
+                p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
+                p.dx = 0; p.dy = 0; p.alive = true;
+                delete p.respawnAt;
+            }
+        }
+    }
+
+    // ── Move players ──────────────────────────────────────────────────────
+    for (const p of world.players.values()) {
         if (!p.alive) continue;
         const spd = survSpeed(p.mass);
         const len = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
@@ -75,83 +164,149 @@ function survTick() {
         }
     }
 
-    // Player eats food
-    for (const p of survWorld.players.values()) {
-        if (!p.alive) continue;
-        const rSq = p.r * p.r;
-        for (const [fid, f] of survWorld.food) {
-            const dx = p.x - f.x, dy = p.y - f.y;
-            if (dx * dx + dy * dy < rSq) {
-                p.mass += SURV.FOOD_MASS;
-                p.r = survRadius(p.mass);
-                survWorld.food.delete(fid);
+    // ── Hunger: mass decay ────────────────────────────────────────────────
+    if (world.mode === 'hunger') {
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            // Larger cells decay proportionally faster (bigger is harder to maintain)
+            const rate = SURV.HUNGER_DECAY * Math.pow(p.mass / SURV.START_MASS, 0.4);
+            p.mass -= p.mass * rate * DT;
+            p.r = survRadius(p.mass);
+            if (p.mass < SURV.HUNGER_MIN_MASS) {
+                survKillPlayer(world, p, 'đói');
             }
         }
     }
 
-    // Player eats player
-    const alive = [...survWorld.players.values()].filter(p => p.alive);
+    // ── Battle: zone shrink + zone damage ────────────────────────────────
+    if (world.mode === 'battle' && world.zone && !world.winner) {
+        const z = world.zone;
+        if (world.tick >= z.startTick && z.r > z.minR) {
+            z.r = Math.max(z.minR, z.r - z.shrinkRate);
+        }
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            const dx = p.x - z.cx, dy = p.y - z.cy;
+            if (dx * dx + dy * dy > z.r * z.r) {
+                p.mass -= SURV.BATTLE_ZONE_DMG * DT;
+                p.r = survRadius(Math.max(1, p.mass));
+                if (p.mass < 2) survKillPlayer(world, p, 'vùng nguy hiểm');
+            }
+        }
+    }
+
+    // ── Players eat food ──────────────────────────────────────────────────
+    for (const p of world.players.values()) {
+        if (!p.alive) continue;
+        const rSq = p.r * p.r;
+        for (const [fid, f] of world.food) {
+            const dx = p.x - f.x, dy = p.y - f.y;
+            if (dx * dx + dy * dy < rSq) {
+                p.mass += SURV.FOOD_MASS;
+                p.r = survRadius(p.mass);
+                world.food.delete(fid);
+            }
+        }
+    }
+
+    // ── Players eat players ────────────────────────────────────────────────
+    const alive = [...world.players.values()].filter(p => p.alive);
     for (let i = 0; i < alive.length; i++) {
         for (let j = i + 1; j < alive.length; j++) {
             const a = alive[i], b = alive[j];
             if (!a.alive || !b.alive) continue;
             const dx = a.x - b.x, dy = a.y - b.y;
-            const distSq = dx * dx + dy * dy;
-            if (a.r > b.r * 1.1 && distSq < a.r * a.r) {
-                a.mass += b.mass; a.r = survRadius(a.mass); b.alive = false;
-                if (b.ws) sendToPlayer(b.ws, { type: 'SURVIVAL_DIED', killedBy: a.name, mass: Math.floor(b.mass) });
-            } else if (b.r > a.r * 1.1 && distSq < b.r * b.r) {
-                b.mass += a.mass; b.r = survRadius(b.mass); a.alive = false;
-                if (a.ws) sendToPlayer(a.ws, { type: 'SURVIVAL_DIED', killedBy: b.name, mass: Math.floor(a.mass) });
+            const dSq = dx * dx + dy * dy;
+            if (a.r > b.r * 1.1 && dSq < a.r * a.r) {
+                a.mass += b.mass; a.r = survRadius(a.mass);
+                survKillPlayer(world, b, a.name);
+            } else if (b.r > a.r * 1.1 && dSq < b.r * b.r) {
+                b.mass += a.mass; b.r = survRadius(b.mass);
+                survKillPlayer(world, a, b.name);
             }
         }
     }
 
-    survSpawnFood();
+    // ── Win conditions ────────────────────────────────────────────────────
+    if (!world.winner && world.resetAt === 0) {
+        const stillAlive = [...world.players.values()].filter(p => p.alive);
+        if (world.mode === 'battle' && world.players.size >= 2 && stillAlive.length <= 1) {
+            const w = stillAlive[0];
+            world.winner = w
+                ? { name: w.name, color: w.color, mass: Math.floor(w.mass) }
+                : { name: 'Không ai', color: '#aaa', mass: 0 };
+            world.resetAt = world.tick + SURV.BATTLE_RESET_DELAY * SURV.TICK_RATE;
+        }
+        if (world.mode === 'race') {
+            const firstToTarget = stillAlive.find(p => p.mass >= SURV.RACE_TARGET);
+            if (firstToTarget) {
+                world.winner = { name: firstToTarget.name, color: firstToTarget.color, mass: Math.floor(firstToTarget.mass) };
+                world.resetAt = world.tick + SURV.RACE_RESET_DELAY * SURV.TICK_RATE;
+            }
+        }
+    }
 
-    // Build broadcast state
-    const leaderboard = [...survWorld.players.values()]
+    survSpawnFood(world);
+
+    // ── Build leaderboard ─────────────────────────────────────────────────
+    const leaderboard = [...world.players.values()]
         .filter(p => p.alive)
         .sort((a, b) => b.mass - a.mass)
         .slice(0, 10)
         .map(p => ({ id: p.id, name: p.name, mass: Math.floor(p.mass), color: p.color }));
 
+    const zoneData = world.zone
+        ? { cx: Math.round(world.zone.cx), cy: Math.round(world.zone.cy), r: Math.round(world.zone.r) }
+        : null;
+
+    const resetCountdown = world.resetAt > 0
+        ? Math.ceil((world.resetAt - world.tick) / SURV.TICK_RATE)
+        : 0;
+
     const stateMsg = JSON.stringify({
-        type: 'SURVIVAL_STATE',
-        tick: survWorld.tick,
-        players: [...survWorld.players.values()].map(p => ({
+        type:           'SURVIVAL_STATE',
+        mode:           world.mode,
+        tick:           world.tick,
+        roundNum:       world.roundNum,
+        players:        [...world.players.values()].map(p => ({
             id: p.id, name: p.name,
             x: Math.round(p.x), y: Math.round(p.y), r: Math.round(p.r),
             color: p.color, alive: p.alive
         })),
-        food: [...survWorld.food.values()],
-        leaderboard
+        food:           [...world.food.values()],
+        leaderboard,
+        zone:           zoneData,
+        winner:         world.winner,
+        resetCountdown,
+        raceTarget:     world.mode === 'race' ? SURV.RACE_TARGET : null
     });
 
-    for (const p of survWorld.players.values()) {
+    for (const p of world.players.values()) {
         if (p.ws && p.ws.readyState === WebSocket.OPEN) {
             p.ws.send(stateMsg);
         }
     }
 }
 
-function survStart() {
-    if (survWorld.interval) return;
-    survSpawnFood();
-    survWorld.interval = setInterval(survTick, 1000 / SURV.TICK_RATE);
-    console.log('[SURVIVAL] Game loop started');
+function survStart(world) {
+    if (world.interval) return;
+    survSpawnFood(world);
+    world.interval = setInterval(() => survTick(world), 1000 / SURV.TICK_RATE);
+    console.log(`[SURVIVAL:${world.mode}] Game loop started`);
 }
 
-function survStop() {
-    if (!survWorld.interval) return;
-    clearInterval(survWorld.interval);
-    survWorld.interval = null;
-    console.log('[SURVIVAL] Game loop stopped');
+function survStop(world) {
+    if (!world.interval) return;
+    clearInterval(world.interval);
+    world.interval = null;
+    console.log(`[SURVIVAL:${world.mode}] Game loop stopped`);
 }
 
-function survPlayerLeave(playerId) {
-    survWorld.players.delete(playerId);
-    if (survWorld.players.size === 0) survStop();
+function survPlayerLeave(mode, playerId) {
+    const world = survWorlds[mode];
+    if (!world) return;
+    world.players.delete(playerId);
+    if (world.players.size === 0) survStop(world);
 }
 // ==========================================================================
 
@@ -703,6 +858,7 @@ wss.on('connection', (ws) => {
     let currentPlayer = null;
     let currentRoomCode = null;
     let currentSurvivalId = null;
+    let currentSurvivalMode = null;
 
     ws.on('message', (messageStr) => {
         try {
@@ -1304,27 +1460,27 @@ wss.on('connection', (ws) => {
 
                 // =================== SURVIVAL GAME ===================
                 case 'SURVIVAL_JOIN': {
+                    const sMode = SURV_VALID_MODES.has(data.mode) ? data.mode : 'classic';
                     const sName = String(data.playerName || 'Player').trim().slice(0, 15) || 'Player';
-                    const sId = 'sp-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
-                    const sColor = SURV.COLORS[survWorld.players.size % SURV.COLORS.length];
-                    const sPlayer = {
+                    const sId   = 'sp-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
+                    const world = getSurvWorld(sMode);
+                    const sColor = SURV.COLORS[world.players.size % SURV.COLORS.length];
+                    world.players.set(sId, {
                         id: sId, name: sName,
-                        x: 200 + Math.random() * (SURV.WORLD - 400),
-                        y: 200 + Math.random() * (SURV.WORLD - 400),
-                        mass: SURV.START_MASS,
-                        r: survRadius(SURV.START_MASS),
-                        dx: 0, dy: 0,
-                        color: sColor, alive: true, ws
-                    };
-                    survWorld.players.set(sId, sPlayer);
-                    currentSurvivalId = sId;
-                    sendToPlayer(ws, { type: 'SURVIVAL_JOINED', playerId: sId, worldSize: SURV.WORLD, color: sColor });
-                    survStart();
+                        x: survRandPos(), y: survRandPos(),
+                        mass: SURV.START_MASS, r: survRadius(SURV.START_MASS),
+                        dx: 0, dy: 0, color: sColor, alive: true, ws
+                    });
+                    currentSurvivalId   = sId;
+                    currentSurvivalMode = sMode;
+                    sendToPlayer(ws, { type: 'SURVIVAL_JOINED', playerId: sId, worldSize: SURV.WORLD, color: sColor, mode: sMode });
+                    survStart(world);
                     break;
                 }
 
                 case 'SURVIVAL_INPUT': {
-                    const sp = survWorld.players.get(currentSurvivalId);
+                    if (!currentSurvivalMode || !currentSurvivalId) break;
+                    const sp = survWorlds[currentSurvivalMode]?.players.get(currentSurvivalId);
                     if (sp && sp.alive) {
                         sp.dx = Math.max(-1, Math.min(1, Number(data.dx) || 0));
                         sp.dy = Math.max(-1, Math.min(1, Number(data.dy) || 0));
@@ -1333,23 +1489,23 @@ wss.on('connection', (ws) => {
                 }
 
                 case 'SURVIVAL_RESPAWN': {
-                    const sp = survWorld.players.get(currentSurvivalId);
-                    if (sp) {
-                        sp.x = 200 + Math.random() * (SURV.WORLD - 400);
-                        sp.y = 200 + Math.random() * (SURV.WORLD - 400);
-                        sp.mass = SURV.START_MASS;
-                        sp.r = survRadius(SURV.START_MASS);
-                        sp.dx = 0; sp.dy = 0;
-                        sp.alive = true;
-                        sp.ws = ws;
+                    if (!currentSurvivalMode || !currentSurvivalId) break;
+                    const sp = survWorlds[currentSurvivalMode]?.players.get(currentSurvivalId);
+                    // Manual respawn only in classic and hunger; race/battle are auto-managed
+                    if (sp && (currentSurvivalMode === 'classic' || currentSurvivalMode === 'hunger')) {
+                        sp.x = survRandPos(); sp.y = survRandPos();
+                        sp.mass = SURV.START_MASS; sp.r = survRadius(SURV.START_MASS);
+                        sp.dx = 0; sp.dy = 0; sp.alive = true; sp.ws = ws;
+                        delete sp.respawnAt;
                     }
                     break;
                 }
 
                 case 'SURVIVAL_LEAVE': {
-                    if (currentSurvivalId) {
-                        survPlayerLeave(currentSurvivalId);
-                        currentSurvivalId = null;
+                    if (currentSurvivalId && currentSurvivalMode) {
+                        survPlayerLeave(currentSurvivalMode, currentSurvivalId);
+                        currentSurvivalId   = null;
+                        currentSurvivalMode = null;
                     }
                     break;
                 }
@@ -1367,9 +1523,10 @@ wss.on('connection', (ws) => {
     // Handle Connection Disconnect
     ws.on('close', () => {
         // Survival cleanup
-        if (currentSurvivalId) {
-            survPlayerLeave(currentSurvivalId);
-            currentSurvivalId = null;
+        if (currentSurvivalId && currentSurvivalMode) {
+            survPlayerLeave(currentSurvivalMode, currentSurvivalId);
+            currentSurvivalId   = null;
+            currentSurvivalMode = null;
         }
 
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
