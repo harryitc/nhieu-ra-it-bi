@@ -2,7 +2,7 @@ services:
   - type: web
     name: nhieu-ra-it-bi-online
     env: node
-    buildCommand: npm install
+    buildCommand: cd client && npm install && npm run build && cd .. && npm install
     startCommand: npm start
     envVars:
       - key: NODE_ENV
