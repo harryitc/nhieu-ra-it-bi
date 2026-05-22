@@ -1799,6 +1799,7 @@ body {
     position: fixed;
     bottom: 20px;
     left: 20px;
+    max-width: calc(100vw - 40px);
     background: rgba(20, 240, 255, 0.12);
     border: 1px solid var(--neon-blue);
     backdrop-filter: blur(10px);
@@ -4137,3 +4138,168 @@ body {
     }
 }
 
+
+/* ==========================================================================
+   TOUCH-ACTION FIX: prevent 300ms tap delay on iOS for all interactive els
+   ========================================================================== */
+button,
+.btn,
+.mode-select-item,
+.hub-game-card,
+.emoji-btn,
+.chat-header,
+.history-header,
+.sound-banner,
+[role="button"],
+input,
+select,
+textarea {
+    touch-action: manipulation;
+}
+
+/* ==========================================================================
+   HUB PAGE — Game selection home screen
+   ========================================================================== */
+.hub-page {
+    width: 100%;
+    max-width: 700px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 30px;
+}
+
+.hub-games-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+}
+
+.hub-game-card {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding: 22px 24px;
+    cursor: pointer;
+    border-radius: 20px;
+    transition: var(--transition-bounce);
+    position: relative;
+    overflow: hidden;
+    margin-bottom: 0;
+}
+
+.hub-game-card.available:hover {
+    border-color: var(--game-color);
+    box-shadow: 0 0 20px color-mix(in srgb, var(--game-color) 20%, transparent), 0 8px 32px rgba(0,0,0,0.4);
+    transform: translateY(-2px);
+}
+
+.hub-game-card.unavailable {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.hub-game-icon {
+    width: 60px;
+    height: 60px;
+    border-radius: 16px;
+    background: color-mix(in srgb, var(--game-color) 15%, transparent);
+    border: 1px solid color-mix(in srgb, var(--game-color) 30%, transparent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.hub-game-icon .material-symbols-rounded {
+    font-size: 30px;
+    color: var(--game-color);
+}
+
+.hub-game-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.hub-game-title-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.hub-game-info h2 {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.hub-game-subtitle {
+    font-size: 12px;
+    color: var(--game-color);
+    font-weight: 600;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.hub-game-desc {
+    font-size: 13px;
+    color: var(--text-muted);
+    line-height: 1.5;
+}
+
+.hub-game-arrow {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    opacity: 0.5;
+}
+
+@media (max-width: 480px) {
+    .hub-game-card {
+        padding: 16px 18px;
+        gap: 14px;
+    }
+    .hub-game-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 12px;
+    }
+    .hub-game-icon .material-symbols-rounded {
+        font-size: 24px;
+    }
+    .hub-game-info h2 {
+        font-size: 16px;
+    }
+    .hub-game-desc {
+        font-size: 12px;
+    }
+}
+
+/* Hub back button on game screens */
+.hub-back-btn {
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 12px;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: var(--transition-smooth);
+    touch-action: manipulation;
+}
+.hub-back-btn:hover {
+    background: rgba(255,255,255,0.12);
+    color: var(--text-primary);
+}
+.app-header {
+    position: relative;
+}

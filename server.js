@@ -10,6 +10,11 @@ const wss = new WebSocket.Server({ server });
 // Serve static files from client build
 app.use(express.static(path.join(__dirname, 'client/dist')));
 
+// SPA catch-all: serve index.html for any non-file route so React Router works
+app.get('*', (req, res) => {
+    res.sendFile(path.join(__dirname, 'client/dist', 'index.html'));
+});
+
 // Port configuration (useful for deployment platforms like Render, Railway, Heroku)
 const PORT = process.env.PORT || 3000;
 

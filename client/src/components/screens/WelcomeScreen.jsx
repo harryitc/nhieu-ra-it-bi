@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 import useGameStore from '../../store/gameStore'
 import { sendToServer } from '../../hooks/useWebSocket'
@@ -28,6 +29,7 @@ const MODES = [
 ]
 
 export default function WelcomeScreen() {
+  const navigate = useNavigate()
   const { savedPlayerName, addToast, setSavedPlayerName } = useGameStore(useShallow((s) => ({
     savedPlayerName: s.savedPlayerName,
     addToast: s.addToast,
@@ -89,6 +91,9 @@ export default function WelcomeScreen() {
   return (
     <section id="welcome-screen" className="screen active">
       <header className="app-header animate-fade-in">
+        <button className="hub-back-btn" onClick={() => navigate('/')} title="Về trang chủ">
+          <span className="material-symbols-rounded">arrow_back</span>
+        </button>
         <div className="logo-container">
           <span className="material-symbols-rounded logo-icon">sports_kabaddi</span>
         </div>
