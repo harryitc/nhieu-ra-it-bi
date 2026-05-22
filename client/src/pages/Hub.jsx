@@ -14,15 +14,15 @@ const GAMES = [
     available: true
   },
   {
-    id: 'game2',
-    path: '/coming-soon',
-    icon: 'casino',
-    title: 'Xúc Xắc',
-    subtitle: 'Trò chơi may mắn',
-    desc: 'Đang phát triển...',
-    badge: 'Sắp ra',
-    color: 'var(--neon-yellow)',
-    available: false
+    id: 'survival',
+    path: '/survival',
+    icon: 'bubble_chart',
+    title: 'Sinh Tồn 2D',
+    subtitle: 'Ăn thua như agar.io',
+    desc: 'Di chuyển, ăn pellet và nuốt cell nhỏ hơn để lớn lên. Cuộc chiến sinh tồn thời gian thực nhiều người!',
+    badge: 'Mới',
+    color: 'var(--neon-green)',
+    available: true
   },
   {
     id: 'game3',

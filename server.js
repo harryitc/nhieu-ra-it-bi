@@ -22,6 +22,139 @@ const PORT = process.env.PORT || 3000;
 // Structure: { [roomCode]: { code, players: [], gameMode, gameState, cleanupTimer? } }
 const lobbies = {};
 
+// ==========================================================================
+// SURVIVAL GAME (agar.io-like)
+// ==========================================================================
+const SURV = {
+    WORLD: 6000,
+    MAX_FOOD: 350,
+    FOOD_MASS: 1,
+    START_MASS: 15,
+    TICK_RATE: 30,
+    BASE_SPEED: 140, // world units / second at start mass
+    COLORS: ['#ff4757','#2ed573','#1e90ff','#ffa502','#ff6b81','#a29bfe',
+             '#00cec9','#fd79a8','#e17055','#6c5ce7','#00b894','#fdcb6e',
+             '#55efc4','#74b9ff','#dfe6e9','#fab1a0']
+};
+
+const survWorld = {
+    players: new Map(),   // id → player obj
+    food:    new Map(),   // id → { id, x, y, color }
+    nextFoodId: 0,
+    tick: 0,
+    interval: null
+};
+
+function survRadius(mass) { return Math.sqrt(mass) * 5; }
+function survSpeed(mass)  { return SURV.BASE_SPEED / Math.max(1, Math.pow(mass / SURV.START_MASS, 0.35)); }
+
+function survSpawnFood() {
+    while (survWorld.food.size < SURV.MAX_FOOD) {
+        const id = 'f' + survWorld.nextFoodId++;
+        survWorld.food.set(id, {
+            id,
+            x: 50 + Math.random() * (SURV.WORLD - 100),
+            y: 50 + Math.random() * (SURV.WORLD - 100),
+            color: SURV.COLORS[Math.floor(Math.random() * SURV.COLORS.length)]
+        });
+    }
+}
+
+function survTick() {
+    const DT = 1 / SURV.TICK_RATE;
+    survWorld.tick++;
+
+    // Move players
+    for (const p of survWorld.players.values()) {
+        if (!p.alive) continue;
+        const spd = survSpeed(p.mass);
+        const len = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
+        if (len > 0.01) {
+            p.x = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.x + (p.dx / len) * spd * DT));
+            p.y = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.y + (p.dy / len) * spd * DT));
+        }
+    }
+
+    // Player eats food
+    for (const p of survWorld.players.values()) {
+        if (!p.alive) continue;
+        const rSq = p.r * p.r;
+        for (const [fid, f] of survWorld.food) {
+            const dx = p.x - f.x, dy = p.y - f.y;
+            if (dx * dx + dy * dy < rSq) {
+                p.mass += SURV.FOOD_MASS;
+                p.r = survRadius(p.mass);
+                survWorld.food.delete(fid);
+            }
+        }
+    }
+
+    // Player eats player
+    const alive = [...survWorld.players.values()].filter(p => p.alive);
+    for (let i = 0; i < alive.length; i++) {
+        for (let j = i + 1; j < alive.length; j++) {
+            const a = alive[i], b = alive[j];
+            if (!a.alive || !b.alive) continue;
+            const dx = a.x - b.x, dy = a.y - b.y;
+            const distSq = dx * dx + dy * dy;
+            if (a.r > b.r * 1.1 && distSq < a.r * a.r) {
+                a.mass += b.mass; a.r = survRadius(a.mass); b.alive = false;
+                if (b.ws) sendToPlayer(b.ws, { type: 'SURVIVAL_DIED', killedBy: a.name, mass: Math.floor(b.mass) });
+            } else if (b.r > a.r * 1.1 && distSq < b.r * b.r) {
+                b.mass += a.mass; b.r = survRadius(b.mass); a.alive = false;
+                if (a.ws) sendToPlayer(a.ws, { type: 'SURVIVAL_DIED', killedBy: b.name, mass: Math.floor(a.mass) });
+            }
+        }
+    }
+
+    survSpawnFood();
+
+    // Build broadcast state
+    const leaderboard = [...survWorld.players.values()]
+        .filter(p => p.alive)
+        .sort((a, b) => b.mass - a.mass)
+        .slice(0, 10)
+        .map(p => ({ id: p.id, name: p.name, mass: Math.floor(p.mass), color: p.color }));
+
+    const stateMsg = JSON.stringify({
+        type: 'SURVIVAL_STATE',
+        tick: survWorld.tick,
+        players: [...survWorld.players.values()].map(p => ({
+            id: p.id, name: p.name,
+            x: Math.round(p.x), y: Math.round(p.y), r: Math.round(p.r),
+            color: p.color, alive: p.alive
+        })),
+        food: [...survWorld.food.values()],
+        leaderboard
+    });
+
+    for (const p of survWorld.players.values()) {
+        if (p.ws && p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(stateMsg);
+        }
+    }
+}
+
+function survStart() {
+    if (survWorld.interval) return;
+    survSpawnFood();
+    survWorld.interval = setInterval(survTick, 1000 / SURV.TICK_RATE);
+    console.log('[SURVIVAL] Game loop started');
+}
+
+function survStop() {
+    if (!survWorld.interval) return;
+    clearInterval(survWorld.interval);
+    survWorld.interval = null;
+    console.log('[SURVIVAL] Game loop stopped');
+}
+
+function survPlayerLeave(playerId) {
+    survWorld.players.delete(playerId);
+    if (survWorld.players.size === 0) survStop();
+}
+// ==========================================================================
+
 // Harmonic player color palette matching client
 const PALETTE = [
     { name: 'Xanh Neon', value: '#00f0ff', rgb: '0, 240, 255' },
@@ -470,6 +603,7 @@ wss.on('error', (err) => console.error('[WSS] Server error:', err.message));
 wss.on('connection', (ws) => {
     let currentPlayer = null;
     let currentRoomCode = null;
+    let currentSurvivalId = null;
 
     ws.on('message', (messageStr) => {
         try {
@@ -1081,7 +1215,6 @@ wss.on('connection', (ws) => {
 
                 // ------------------ LEAVE ROOM (Deliberate) ------------------
                 case 'LEAVE_ROOM': {
-                    if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
                     const lobby = lobbies[currentRoomCode];
                     const leavingName = currentPlayer.name;
                     const wasHost = currentPlayer.isHost;
@@ -1126,6 +1259,59 @@ wss.on('connection', (ws) => {
                     currentRoomCode = null;
                     break;
                 }
+
+                // =================== SURVIVAL GAME ===================
+                case 'SURVIVAL_JOIN': {
+                    const sName = String(data.playerName || 'Player').trim().slice(0, 15) || 'Player';
+                    const sId = 'sp-' + Date.now() + '-' + Math.floor(Math.random() * 9999);
+                    const sColor = SURV.COLORS[survWorld.players.size % SURV.COLORS.length];
+                    const sPlayer = {
+                        id: sId, name: sName,
+                        x: 200 + Math.random() * (SURV.WORLD - 400),
+                        y: 200 + Math.random() * (SURV.WORLD - 400),
+                        mass: SURV.START_MASS,
+                        r: survRadius(SURV.START_MASS),
+                        dx: 0, dy: 0,
+                        color: sColor, alive: true, ws
+                    };
+                    survWorld.players.set(sId, sPlayer);
+                    currentSurvivalId = sId;
+                    sendToPlayer(ws, { type: 'SURVIVAL_JOINED', playerId: sId, worldSize: SURV.WORLD, color: sColor });
+                    survStart();
+                    break;
+                }
+
+                case 'SURVIVAL_INPUT': {
+                    const sp = survWorld.players.get(currentSurvivalId);
+                    if (sp && sp.alive) {
+                        sp.dx = Math.max(-1, Math.min(1, Number(data.dx) || 0));
+                        sp.dy = Math.max(-1, Math.min(1, Number(data.dy) || 0));
+                    }
+                    break;
+                }
+
+                case 'SURVIVAL_RESPAWN': {
+                    const sp = survWorld.players.get(currentSurvivalId);
+                    if (sp) {
+                        sp.x = 200 + Math.random() * (SURV.WORLD - 400);
+                        sp.y = 200 + Math.random() * (SURV.WORLD - 400);
+                        sp.mass = SURV.START_MASS;
+                        sp.r = survRadius(SURV.START_MASS);
+                        sp.dx = 0; sp.dy = 0;
+                        sp.alive = true;
+                        sp.ws = ws;
+                    }
+                    break;
+                }
+
+                case 'SURVIVAL_LEAVE': {
+                    if (currentSurvivalId) {
+                        survPlayerLeave(currentSurvivalId);
+                        currentSurvivalId = null;
+                    }
+                    break;
+                }
+                // ======================================================
             }
         } catch (e) {
             console.error('Error handling WebSocket message:', e);
@@ -1138,6 +1324,12 @@ wss.on('connection', (ws) => {
 
     // Handle Connection Disconnect
     ws.on('close', () => {
+        // Survival cleanup
+        if (currentSurvivalId) {
+            survPlayerLeave(currentSurvivalId);
+            currentSurvivalId = null;
+        }
+
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
 
         const lobby = lobbies[currentRoomCode];
