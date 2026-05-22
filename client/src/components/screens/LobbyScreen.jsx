@@ -44,7 +44,7 @@ export default function LobbyScreen() {
   const handleCopyLink = () => {
     sounds.playClick()
     if (!roomCode) return
-    const joinUrl = `${window.location.protocol}//${window.location.host}/?invite_friends=${roomCode}`
+    const joinUrl = `${window.location.protocol}//${window.location.host}/oantuti?room=${roomCode}`
     navigator.clipboard.writeText(joinUrl).then(() => {
       addToast('Đã sao chép liên kết vào phòng! Hãy gửi liên kết này cho bạn bè.', 'success')
     }).catch(() => {
