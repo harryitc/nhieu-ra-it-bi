@@ -27,31 +27,37 @@ const lobbies = {};
 // ==========================================================================
 const SURV = {
     WORLD: 6000,
-    MAX_FOOD:             { classic: 350, battle: 280, race: 420, hunger: 500 },
-    FOOD_MASS:            1,
-    START_MASS:           15,
-    TICK_RATE:            30,
-    BASE_SPEED:           140,      // world-units/sec at start mass
+    MAX_FOOD:            { classic: 350, battle: 280 },
+    FOOD_MASS:           1,
+    START_MASS:          15,
+    MIN_MASS:            3,
+    TICK_RATE:           30,
+    BASE_SPEED:          140,
     // Battle Royale
-    BATTLE_ZONE_START:    25,       // seconds before zone shrinks
-    BATTLE_ZONE_SHRINK:   170,      // seconds to reach min radius
-    BATTLE_ZONE_INIT:     0.68,     // fraction of WORLD for initial radius
-    BATTLE_ZONE_MIN:      120,      // minimum zone radius
-    BATTLE_ZONE_DMG:      0.5,      // mass/sec outside zone
-    BATTLE_RESET_DELAY:   6,        // seconds between rounds
-    // Race
-    RACE_TARGET:          500,
-    RACE_RESET_DELAY:     6,
-    RACE_RESPAWN_DELAY:   2,        // seconds before auto-respawn after dying
-    // Hunger
-    HUNGER_DECAY:         0.007,    // base fraction of mass lost per second
-    HUNGER_MIN_MASS:      12,       // below this → die
+    BATTLE_ZONE_START:   25,
+    BATTLE_ZONE_SHRINK:  170,
+    BATTLE_ZONE_INIT:    0.68,
+    BATTLE_ZONE_MIN:     120,
+    BATTLE_ZONE_DMG:     1,         // 1 mass/sec outside zone
+    BATTLE_RESET_DELAY:  6,
+    // Weapons (battle)
+    MAX_WEAPON_BOXES:    8,
+    BULLET_SPEED:        500,
+    BULLET_LIFETIME:     45,        // ticks
+    BULLET_DAMAGE:       5,
+    GUN_FIRE_TICKS:      25,
+    MAX_WEAPON_LEVEL:    4,
+    // Mana / Sprint (battle)
+    MANA_MAX:            100,
+    MANA_REGEN:          12,        // per sec
+    MANA_DRAIN:          20,        // per sec when sprinting
+    SPRINT_MULT:         1.6,
     COLORS: ['#ff4757','#2ed573','#1e90ff','#ffa502','#ff6b81','#a29bfe',
              '#00cec9','#fd79a8','#e17055','#6c5ce7','#00b894','#fdcb6e',
              '#55efc4','#74b9ff','#dfe6e9','#fab1a0']
 };
 
-const SURV_VALID_MODES = new Set(['classic','battle','race','hunger']);
+const SURV_VALID_MODES = new Set(['classic','battle']);
 
 function survRadius(mass) { return Math.sqrt(mass) * 5; }
 function survSpeed(mass)  { return SURV.BASE_SPEED / Math.max(1, Math.pow(mass / SURV.START_MASS, 0.35)); }
@@ -60,14 +66,18 @@ function survRandPos()    { return 200 + Math.random() * (SURV.WORLD - 400); }
 function createSurvWorld(mode) {
     return {
         mode,
-        players:    new Map(),
-        food:       new Map(),
-        nextFoodId: 0,
-        tick:       0,
-        interval:   null,
-        roundNum:   1,
-        winner:     null,   // { name, color, mass } — set when round ends
-        resetAt:    0,      // tick number to trigger round reset (0 = none)
+        players:      new Map(),
+        food:         new Map(),
+        bullets:      mode === 'battle' ? new Map() : null,
+        weaponBoxes:  mode === 'battle' ? new Map() : null,
+        nextFoodId:   0,
+        nextBulletId: 0,
+        nextWBoxId:   0,
+        tick:         0,
+        interval:     null,
+        roundNum:     1,
+        winner:       null,
+        resetAt:      0,
         zone: mode === 'battle' ? {
             cx: SURV.WORLD / 2, cy: SURV.WORLD / 2,
             r:  SURV.WORLD * SURV.BATTLE_ZONE_INIT,
@@ -84,6 +94,25 @@ const survWorlds = {};
 function getSurvWorld(mode) {
     if (!survWorlds[mode]) survWorlds[mode] = createSurvWorld(mode);
     return survWorlds[mode];
+}
+
+function getGunAngles(level) {
+    if (level === 1) return [0];
+    if (level === 2) return [0, Math.PI];
+    if (level === 3) return [0, Math.PI * 2/3, Math.PI * 4/3];
+    return [0, Math.PI/2, Math.PI, Math.PI * 3/2];
+}
+
+function survSpawnWeaponBoxes(world) {
+    if (!world.weaponBoxes) return;
+    while (world.weaponBoxes.size < SURV.MAX_WEAPON_BOXES) {
+        const id = 'wb' + world.nextWBoxId++;
+        world.weaponBoxes.set(id, {
+            id,
+            x: 400 + Math.random() * (SURV.WORLD - 800),
+            y: 400 + Math.random() * (SURV.WORLD - 800),
+        });
+    }
 }
 
 function survSpawnFood(world) {
@@ -107,10 +136,12 @@ function survResetRound(world) {
         world.zone.r         = SURV.WORLD * SURV.BATTLE_ZONE_INIT;
         world.zone.startTick = world.tick + SURV.BATTLE_ZONE_START * SURV.TICK_RATE;
     }
+    if (world.bullets) world.bullets.clear();
     for (const p of world.players.values()) {
         p.x = survRandPos(); p.y = survRandPos();
         p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
         p.dx = 0; p.dy = 0; p.alive = true;
+        p.weaponLevel = 0; p.mana = SURV.MANA_MAX; p.shootTimer = 0;
         delete p.respawnAt;
     }
     console.log(`[SURVIVAL:${world.mode}] Round ${world.roundNum} started`);
@@ -126,10 +157,6 @@ function survKillPlayer(world, p, killedBy) {
             mode: world.mode
         });
     }
-    // Race mode: schedule auto-respawn
-    if (world.mode === 'race') {
-        p.respawnAt = world.tick + SURV.RACE_RESPAWN_DELAY * SURV.TICK_RATE;
-    }
 }
 
 function survTick(world) {
@@ -141,14 +168,14 @@ function survTick(world) {
         survResetRound(world);
     }
 
-    // ── Race: auto-respawn dead players ──────────────────────────────────
-    if (world.mode === 'race') {
+    // ── Mana regen/drain (battle) ─────────────────────────────────────────
+    if (world.mode === 'battle') {
         for (const p of world.players.values()) {
-            if (!p.alive && p.respawnAt && world.tick >= p.respawnAt) {
-                p.x = survRandPos(); p.y = survRandPos();
-                p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
-                p.dx = 0; p.dy = 0; p.alive = true;
-                delete p.respawnAt;
+            if (!p.alive) continue;
+            if (p.sprint && p.mana > 0) {
+                p.mana = Math.max(0, p.mana - SURV.MANA_DRAIN * DT);
+            } else {
+                p.mana = Math.min(SURV.MANA_MAX, p.mana + SURV.MANA_REGEN * DT);
             }
         }
     }
@@ -156,25 +183,12 @@ function survTick(world) {
     // ── Move players ──────────────────────────────────────────────────────
     for (const p of world.players.values()) {
         if (!p.alive) continue;
-        const spd = survSpeed(p.mass);
+        const isSprinting = world.mode === 'battle' && p.sprint && p.mana > 0;
+        const spd = survSpeed(p.mass) * (isSprinting ? SURV.SPRINT_MULT : 1);
         const len = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
         if (len > 0.01) {
             p.x = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.x + (p.dx / len) * spd * DT));
             p.y = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.y + (p.dy / len) * spd * DT));
-        }
-    }
-
-    // ── Hunger: mass decay ────────────────────────────────────────────────
-    if (world.mode === 'hunger') {
-        for (const p of world.players.values()) {
-            if (!p.alive) continue;
-            // Larger cells decay proportionally faster (bigger is harder to maintain)
-            const rate = SURV.HUNGER_DECAY * Math.pow(p.mass / SURV.START_MASS, 0.4);
-            p.mass -= p.mass * rate * DT;
-            p.r = survRadius(p.mass);
-            if (p.mass < SURV.HUNGER_MIN_MASS) {
-                survKillPlayer(world, p, 'đói');
-            }
         }
     }
 
@@ -190,8 +204,77 @@ function survTick(world) {
             if (dx * dx + dy * dy > z.r * z.r) {
                 p.mass -= SURV.BATTLE_ZONE_DMG * DT;
                 p.r = survRadius(Math.max(1, p.mass));
-                if (p.mass < 2) survKillPlayer(world, p, 'vùng nguy hiểm');
+                if (p.mass < SURV.MIN_MASS) survKillPlayer(world, p, 'vùng nguy hiểm');
             }
+        }
+    }
+
+    // ── Battle: weapon box pickup ─────────────────────────────────────────
+    if (world.mode === 'battle' && world.weaponBoxes) {
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            for (const [wbId, wb] of world.weaponBoxes) {
+                const ddx = p.x - wb.x, ddy = p.y - wb.y;
+                if (ddx * ddx + ddy * ddy < (p.r + 22) * (p.r + 22)) {
+                    if (p.weaponLevel < SURV.MAX_WEAPON_LEVEL) p.weaponLevel++;
+                    world.weaponBoxes.delete(wbId);
+                    setTimeout(() => {
+                        if (world.weaponBoxes && world.interval) {
+                            const rid = 'wb' + world.nextWBoxId++;
+                            world.weaponBoxes.set(rid, {
+                                id: rid,
+                                x: 400 + Math.random() * (SURV.WORLD - 800),
+                                y: 400 + Math.random() * (SURV.WORLD - 800),
+                            });
+                        }
+                    }, 12000);
+                    break;
+                }
+            }
+        }
+    }
+
+    // ── Battle: guns fire bullets ─────────────────────────────────────────
+    if (world.mode === 'battle' && world.bullets) {
+        for (const p of world.players.values()) {
+            if (!p.alive || p.weaponLevel === 0) continue;
+            if (world.tick - p.shootTimer >= SURV.GUN_FIRE_TICKS) {
+                p.shootTimer = world.tick;
+                const angles = getGunAngles(p.weaponLevel);
+                for (const angle of angles) {
+                    const bid = 'b' + world.nextBulletId++;
+                    world.bullets.set(bid, {
+                        id: bid, shooterId: p.id, shooterName: p.name, color: p.color,
+                        x: p.x + Math.cos(angle) * p.r,
+                        y: p.y + Math.sin(angle) * p.r,
+                        vx: Math.cos(angle) * SURV.BULLET_SPEED,
+                        vy: Math.sin(angle) * SURV.BULLET_SPEED,
+                        life: SURV.BULLET_LIFETIME,
+                    });
+                }
+            }
+        }
+    }
+
+    // ── Battle: move bullets + collision ──────────────────────────────────
+    if (world.mode === 'battle' && world.bullets) {
+        for (const [bid, b] of world.bullets) {
+            b.x += b.vx * DT; b.y += b.vy * DT; b.life--;
+            if (b.life <= 0 || b.x < 0 || b.x > SURV.WORLD || b.y < 0 || b.y > SURV.WORLD) {
+                world.bullets.delete(bid); continue;
+            }
+            let hit = false;
+            for (const p of world.players.values()) {
+                if (!p.alive || p.id === b.shooterId) continue;
+                const ddx = b.x - p.x, ddy = b.y - p.y;
+                if (ddx * ddx + ddy * ddy < p.r * p.r) {
+                    p.mass = Math.max(SURV.MIN_MASS, p.mass - SURV.BULLET_DAMAGE);
+                    p.r = survRadius(p.mass);
+                    if (p.mass <= SURV.MIN_MASS) survKillPlayer(world, p, b.shooterName + ' (súng)');
+                    hit = true; break;
+                }
+            }
+            if (hit) world.bullets.delete(bid);
         }
     }
 
@@ -227,22 +310,15 @@ function survTick(world) {
         }
     }
 
-    // ── Win conditions ────────────────────────────────────────────────────
-    if (!world.winner && world.resetAt === 0) {
+    // ── Win condition (battle) ────────────────────────────────────────────
+    if (world.mode === 'battle' && !world.winner && world.resetAt === 0) {
         const stillAlive = [...world.players.values()].filter(p => p.alive);
-        if (world.mode === 'battle' && world.players.size >= 2 && stillAlive.length <= 1) {
+        if (world.players.size >= 2 && stillAlive.length <= 1) {
             const w = stillAlive[0];
             world.winner = w
                 ? { name: w.name, color: w.color, mass: Math.floor(w.mass) }
                 : { name: 'Không ai', color: '#aaa', mass: 0 };
             world.resetAt = world.tick + SURV.BATTLE_RESET_DELAY * SURV.TICK_RATE;
-        }
-        if (world.mode === 'race') {
-            const firstToTarget = stillAlive.find(p => p.mass >= SURV.RACE_TARGET);
-            if (firstToTarget) {
-                world.winner = { name: firstToTarget.name, color: firstToTarget.color, mass: Math.floor(firstToTarget.mass) };
-                world.resetAt = world.tick + SURV.RACE_RESET_DELAY * SURV.TICK_RATE;
-            }
         }
     }
 
@@ -264,21 +340,28 @@ function survTick(world) {
         : 0;
 
     const stateMsg = JSON.stringify({
-        type:           'SURVIVAL_STATE',
-        mode:           world.mode,
-        tick:           world.tick,
-        roundNum:       world.roundNum,
-        players:        [...world.players.values()].map(p => ({
+        type:        'SURVIVAL_STATE',
+        mode:        world.mode,
+        tick:        world.tick,
+        roundNum:    world.roundNum,
+        players:     [...world.players.values()].map(p => ({
             id: p.id, name: p.name,
             x: Math.round(p.x), y: Math.round(p.y), r: Math.round(p.r),
-            color: p.color, alive: p.alive
+            color: p.color, alive: p.alive,
+            weaponLevel: p.weaponLevel || 0,
+            mana: world.mode === 'battle' ? Math.round(p.mana) : undefined,
         })),
-        food:           [...world.food.values()],
+        food:        [...world.food.values()],
         leaderboard,
-        zone:           zoneData,
-        winner:         world.winner,
+        zone:        zoneData,
+        winner:      world.winner,
         resetCountdown,
-        raceTarget:     world.mode === 'race' ? SURV.RACE_TARGET : null
+        bullets:     world.bullets ? [...world.bullets.values()].map(b => ({
+            id: b.id, x: Math.round(b.x), y: Math.round(b.y), color: b.color
+        })) : null,
+        weaponBoxes: world.weaponBoxes ? [...world.weaponBoxes.values()].map(wb => ({
+            id: wb.id, x: Math.round(wb.x), y: Math.round(wb.y)
+        })) : null,
     });
 
     for (const p of world.players.values()) {
@@ -291,6 +374,7 @@ function survTick(world) {
 function survStart(world) {
     if (world.interval) return;
     survSpawnFood(world);
+    if (world.mode === 'battle') survSpawnWeaponBoxes(world);
     world.interval = setInterval(() => survTick(world), 1000 / SURV.TICK_RATE);
     console.log(`[SURVIVAL:${world.mode}] Game loop started`);
 }
@@ -1469,7 +1553,8 @@ wss.on('connection', (ws) => {
                         id: sId, name: sName,
                         x: survRandPos(), y: survRandPos(),
                         mass: SURV.START_MASS, r: survRadius(SURV.START_MASS),
-                        dx: 0, dy: 0, color: sColor, alive: true, ws
+                        dx: 0, dy: 0, color: sColor, alive: true, ws,
+                        weaponLevel: 0, mana: SURV.MANA_MAX, sprint: false, shootTimer: 0,
                     });
                     currentSurvivalId   = sId;
                     currentSurvivalMode = sMode;
@@ -1484,6 +1569,7 @@ wss.on('connection', (ws) => {
                     if (sp && sp.alive) {
                         sp.dx = Math.max(-1, Math.min(1, Number(data.dx) || 0));
                         sp.dy = Math.max(-1, Math.min(1, Number(data.dy) || 0));
+                        if (typeof data.sprint === 'boolean') sp.sprint = data.sprint;
                     }
                     break;
                 }
@@ -1491,12 +1577,10 @@ wss.on('connection', (ws) => {
                 case 'SURVIVAL_RESPAWN': {
                     if (!currentSurvivalMode || !currentSurvivalId) break;
                     const sp = survWorlds[currentSurvivalMode]?.players.get(currentSurvivalId);
-                    // Manual respawn only in classic and hunger; race/battle are auto-managed
-                    if (sp && (currentSurvivalMode === 'classic' || currentSurvivalMode === 'hunger')) {
+                    if (sp && currentSurvivalMode === 'classic') {
                         sp.x = survRandPos(); sp.y = survRandPos();
                         sp.mass = SURV.START_MASS; sp.r = survRadius(SURV.START_MASS);
                         sp.dx = 0; sp.dy = 0; sp.alive = true; sp.ws = ws;
-                        delete sp.respawnAt;
                     }
                     break;
                 }
