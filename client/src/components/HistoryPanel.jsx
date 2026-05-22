@@ -37,17 +37,15 @@ export default function HistoryPanel() {
           <span className="material-symbols-rounded">history</span>
         </button>
 
-        <div className="history-panel">
-          <div className="history-messages" id="history-messages-container">
-            {recentRounds.length === 0 ? (
-              <div className="history-system-message">Chưa có lịch sử vòng đấu.</div>
-            ) : (
-              recentRounds.map((round, idx) => (
+        {recentRounds.length > 0 && (
+          <div className="history-panel">
+            <div className="history-messages" id="history-messages-container">
+              {recentRounds.map((round, idx) => (
                 <HistoryRow key={idx} round={round} playerStats={playerStats} onClick={openModal} />
-              ))
-            )}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {showModal && (

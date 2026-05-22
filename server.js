@@ -518,6 +518,7 @@ wss.on('connection', (ws) => {
                         maxChanges: 3,
                         roundNumber: 1,
                         ultimateLoserId: null,
+                        gameMode: chosenMode,
                         roundType: startingRoundType,
                         player: {
                             id: currentPlayer.id,

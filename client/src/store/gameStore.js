@@ -38,7 +38,7 @@ const useGameStore = create(
       autoRevealTimeLeft: null,  // 5s countdown before auto-reveal
       // ── CHAT ───────────────────────────────────────────────────────────
       chatMessages: [],
-      chatExpanded: true,
+      chatExpanded: false,
       unreadMessages: 0,
 
       // ── HISTORY (in-memory; also persisted to localStorage by roomCode) ─
@@ -65,6 +65,7 @@ const useGameStore = create(
         set({
           roomCode,
           myPlayer: msg.player,
+          currentMode: msg.gameMode ?? 'oan-tu-ti',
           maxChanges: msg.maxChanges ?? 0,
           roundNumber: msg.roundNumber ?? 1,
           roundType: msg.roundType ?? 'nhieu-ra-it-bi',
@@ -242,7 +243,7 @@ const useGameStore = create(
           roundType: 'nhieu-ra-it-bi',
           unreadMessages: 0,
           chatMessages: [],
-          chatExpanded: true,
+          chatExpanded: false,
           deliberateLeave: false,
           matchHistory: [],
           playerStats: {},
