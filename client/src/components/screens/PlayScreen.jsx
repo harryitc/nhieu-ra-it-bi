@@ -6,7 +6,7 @@ import sounds from '../../utils/sounds'
 import { HAND_SVGS } from '../../utils/handSvgs'
 import { ConfettiManager } from '../../utils/confetti'
 import ChoiceBar from './ChoiceBar'
-
+import { MODE_TITLES } from '../../utils/helpers'
 const COUNTDOWN_STEPS = [
   { text: 'BA', pitch: 220 },
   { text: 'HAI', pitch: 262 },
@@ -17,7 +17,8 @@ const COUNTDOWN_STEPS = [
 export default function PlayScreen() {
   const {
     players, myPlayer, roundNumber, roundType, isCountingDown,
-    revealResults, myChoice, currentMode, selectionTimeLeft, autoRevealTimeLeft
+    revealResults, myChoice, currentMode, selectionTimeLeft, autoRevealTimeLeft,
+    roomCode, showModal, setDeliberateLeave
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     myPlayer: s.myPlayer,
@@ -28,7 +29,10 @@ export default function PlayScreen() {
     myChoice: s.myChoice,
     currentMode: s.currentMode,
     selectionTimeLeft: s.selectionTimeLeft,
-    autoRevealTimeLeft: s.autoRevealTimeLeft
+    autoRevealTimeLeft: s.autoRevealTimeLeft,
+    roomCode: s.roomCode,
+    showModal: s.showModal,
+    setDeliberateLeave: s.setDeliberateLeave
   })))
   const setShowResultOverlay = useGameStore((s) => s.setShowResultOverlay)
 
@@ -137,8 +141,8 @@ export default function PlayScreen() {
   // Emoji reaction animation handler
   useEffect(() => {
     const handler = (e) => {
-      const { emoji, senderName } = e.detail
-      spawnFloatingEmoji(emoji, senderName)
+      const { emoji, playerName } = e.detail
+      spawnFloatingEmoji(emoji, playerName)
     }
     window.addEventListener('game:reaction', handler)
     return () => window.removeEventListener('game:reaction', handler)
@@ -148,6 +152,24 @@ export default function PlayScreen() {
     sounds.playClick()
     sendToServer({ type: 'TRIGGER_REVEAL' })
   }
+
+  const handleLeave = useCallback(() => {
+    sounds.playClick()
+    showModal({
+      title: 'Rời Phòng Chơi',
+      message: 'Bạn có chắc chắn muốn rời khỏi trận đấu đang diễn ra?',
+      icon: 'logout',
+      showCancel: true,
+      onConfirm: () => {
+        setDeliberateLeave(true)
+        if (roomCode) {
+          localStorage.removeItem(`matchHistory_${roomCode}`)
+          localStorage.removeItem(`playerStats_${roomCode}`)
+        }
+        closeSocket()
+      }
+    })
+  }, [showModal, roomCode, setDeliberateLeave])
 
   const isHost = myPlayer?.isHost ?? false
   const activePlayers = players.filter((p) => !p.isSpectator)
@@ -160,14 +182,33 @@ export default function PlayScreen() {
     <section id="play-screen" className="screen active">
       <header className="game-header">
         <div className="game-info-left">
-          <h2 className="round-title">
-            {roundType === 'oan-tu-ti' ? 'Oẳn Tù Tì' : `Vòng ${roundNumber}`}
-          </h2>
+          <div className="game-mode-indicator">
+            <span className="material-symbols-rounded">sports_kabaddi</span>
+            <span className="mode-text">{MODE_TITLES[currentMode] || 'Trận đấu'}</span>
+          </div>
+          <div className="game-round-badge">
+            Vòng {roundNumber}
+          </div>
           {myPlayer?.isSpectator && (
             <span className="spectator-badge">
               <span className="material-symbols-rounded">visibility</span> Khán giả
             </span>
           )}
+        </div>
+
+        <div className="game-info-right">
+          {roomCode && (
+            <div className="game-room-indicator" title="Bấm để sao chép mã phòng">
+              Mã phòng: <strong className="room-code-tag">{roomCode}</strong>
+            </div>
+          )}
+          <button 
+            className="btn btn-secondary btn-icon-only btn-leave-game"
+            onClick={handleLeave}
+            title="Rời phòng chơi"
+          >
+            <span className="material-symbols-rounded">logout</span>
+          </button>
         </div>
       </header>
 
@@ -339,7 +380,7 @@ function PlayerHandCard({ choice, hasChosen, isFlipped, isSafe, roundType }) {
 
 // Utility: spawn floating emoji DOM element (imperative, outside React tree)
 let emojiContainer = null
-function spawnFloatingEmoji(emoji, senderName) {
+function spawnFloatingEmoji(emoji, playerName) {
   if (!emojiContainer) {
     emojiContainer = document.getElementById('emoji-floating-container')
     if (!emojiContainer) {
@@ -354,7 +395,7 @@ function spawnFloatingEmoji(emoji, senderName) {
   el.className = 'floating-emoji'
   el.style.left = `${10 + Math.random() * 80}%`
   el.style.bottom = '10%'
-  el.innerHTML = `<span class="emoji-icon">${emoji}</span><span class="emoji-sender">${senderName}</span>`
+  el.innerHTML = `<span class="emoji-icon">${emoji}</span><span class="emoji-sender">${playerName}</span>`
   emojiContainer.appendChild(el)
 
   setTimeout(() => el.remove(), 2800)
