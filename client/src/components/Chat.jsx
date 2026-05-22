@@ -34,6 +34,11 @@ export default function Chat() {
     setChatExpanded(false)
   }
 
+  const toggleChat = () => {
+    sounds.playClick()
+    setChatExpanded(!chatExpanded)
+  }
+
   const sendMessage = () => {
     const text = inputValue.trim()
     if (!text) return
@@ -50,20 +55,18 @@ export default function Chat() {
       id="app-chat-wrapper"
       className={`chat-wrapper ${chatExpanded ? 'expanded' : 'collapsed'} ${visible ? '' : 'hidden'}`}
     >
-      <button id="chat-toggle-btn" className="chat-toggle-btn" title="Mở trò chuyện" onClick={openChat}>
-        <span className="material-symbols-rounded">chat</span>
-        {unreadMessages > 0 && (
+      <button id="chat-toggle-btn" className="chat-toggle-btn" title={chatExpanded ? 'Đóng trò chuyện' : 'Mở trò chuyện'} onClick={toggleChat}>
+        <span className="material-symbols-rounded">{chatExpanded ? 'close' : 'chat'}</span>
+        {!chatExpanded && unreadMessages > 0 && (
           <span id="chat-badge" className="chat-badge">{unreadMessages}</span>
         )}
       </button>
 
-      <div className="chat-panel glass-card">
-        <div className="chat-header">
-          <span className="material-symbols-rounded">chat</span>
-          <h3>Trò Chuyện Phòng</h3>
-          <button id="chat-close-btn" className="chat-close-icon-btn" title="Đóng" onClick={closeChat}>
-            <span className="material-symbols-rounded">close</span>
-          </button>
+      <div className="chat-panel">
+        <div className="chat-panel-header">
+          <span className="material-symbols-rounded" style={{ fontSize: 16, color: 'var(--neon-blue)' }}>chat</span>
+          <span className="chat-panel-title">Trò Chuyện</span>
+          <span className="chat-unread-count" style={{ display: unreadMessages > 0 ? '' : 'none' }}>{unreadMessages}</span>
         </div>
 
         <div className="chat-messages" id="chat-messages-container">

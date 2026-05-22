@@ -200,7 +200,6 @@ export default function LobbyScreen() {
               <button
                 className="btn btn-danger btn-large btn-leave-room w-100"
                 id="btn-lobby-leave"
-                style={{ marginTop: 15, background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.35)', color: '#f87171' }}
                 onClick={handleLeave}
               >
                 <span className="material-symbols-rounded">logout</span>
@@ -218,7 +217,7 @@ export default function LobbyScreen() {
 function LobbyPlayerRow({ player, myId }) {
   const isMe = player.id === myId
   return (
-    <div className="lobby-player-row">
+    <div className={`lobby-player-row${player.isHost ? ' is-host' : ''}`}>
       <div className="lobby-player-left">
         <span className="lobby-player-dot" style={{ background: player.color.value }} />
         <span className="lobby-player-name" style={{ color: player.color.value }}>{player.name}</span>

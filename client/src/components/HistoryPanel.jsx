@@ -42,40 +42,15 @@ export default function HistoryPanel() {
           <span className="material-symbols-rounded">history</span>
         </button>
 
-        <div className="history-panel glass-card">
-          <div className="history-header">
-            <span className="material-symbols-rounded">history</span>
-            <h3>Lịch Sử Vòng</h3>
-            <button
-              className="history-expand-icon-btn"
-              title="Xem Chi Tiết Bảng Điểm"
-              onClick={openModal}
-              style={{ marginRight: 4 }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 20 }}>analytics</span>
-            </button>
-            <button
-              className="history-close-icon-btn"
-              title="Đóng"
-              onClick={() => {
-                sounds.playClick()
-                setHistoryExpanded(false)
-              }}
-            >
-              <span className="material-symbols-rounded" style={{ fontSize: 20 }}>close</span>
-            </button>
-          </div>
-
-          <div className="history-messages" id="history-messages-container">
-            {recentRounds.length === 0 ? (
-              <div className="history-system-message">Chưa có lịch sử vòng đấu.</div>
-            ) : (
-              recentRounds.map((round, idx) => (
+        {recentRounds.length > 0 && (
+          <div className="history-panel">
+            <div className="history-messages" id="history-messages-container">
+              {recentRounds.map((round, idx) => (
                 <HistoryRow key={idx} round={round} playerStats={playerStats} onClick={openModal} />
-              ))
-            )}
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {showModal && (
