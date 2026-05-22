@@ -51,26 +51,26 @@
                         <div class="form-group">
                             <label>Chọn luật chơi</label>
                             <div class="modes-grid-vertical">
-                                <div class="mode-select-item active" data-mode="majority-out">
+                                <div class="mode-select-item active" data-mode="oan-tu-ti">
+                                    <span class="material-symbols-rounded mode-item-icon">sports_kabaddi</span>
+                                    <div class="mode-desc">
+                                        <h3>Oẳn Tù Tì</h3>
+                                        <p>Luật Oẳn Tù Tì chính: Búa, Kéo, Bao.</p>
+                                    </div>
+                                    <span class="badge badge-popular">Chính</span>
+                                </div>
+                                <div class="mode-select-item" data-mode="majority-out">
                                     <span class="material-symbols-rounded mode-item-icon">groups</span>
                                     <div class="mode-desc">
                                         <h3>Nhiều Ra, Ít Bị</h3>
                                         <p>Số đông an toàn, số ít bị chọn (thua).</p>
                                     </div>
-                                    <span class="badge badge-popular">Phổ biến</span>
                                 </div>
-                                <div class="mode-select-item" data-mode="white-out">
-                                    <span class="material-symbols-rounded mode-item-icon">back_hand</span>
+                                <div class="mode-select-item" data-mode="minority-out">
+                                    <span class="material-symbols-rounded mode-item-icon">group_remove</span>
                                     <div class="mode-desc">
-                                        <h3>Trắng Ra, Đen Bị</h3>
-                                        <p>Ngửa tay (Trắng) an toàn, Úp tay (Đen) bị chọn.</p>
-                                    </div>
-                                </div>
-                                <div class="mode-select-item" data-mode="black-out">
-                                    <span class="material-symbols-rounded mode-item-icon">front_hand</span>
-                                    <div class="mode-desc">
-                                        <h3>Đen Ra, Trắng Bị</h3>
-                                        <p>Úp tay (Đen) an toàn, Ngửa tay (Trắng) bị chọn.</p>
+                                        <h3>Ít Ra, Nhiều Bị</h3>
+                                        <p>Số ít an toàn, số đông bị chọn (thua).</p>
                                     </div>
                                 </div>
                             </div>
@@ -192,18 +192,18 @@
                                 <div class="config-section">
                                     <label class="config-label">Thay đổi luật chơi:</label>
                                     <select class="custom-select" id="host-select-mode">
+                                        <option value="oan-tu-ti" selected>Oẳn Tù Tì</option>
                                         <option value="majority-out">Nhiều Ra, Ít Bị</option>
-                                        <option value="white-out">Trắng Ra, Đen Bị</option>
-                                        <option value="black-out">Đen Ra, Trắng Bị</option>
+                                        <option value="minority-out">Ít Ra, Nhiều Bị</option>
                                     </select>
                                 </div>
                                 <div class="config-section">
-                                    <label class="config-label">Số lần đổi sấp ngửa:</label>
+                                    <label class="config-label">Số lần thay đổi lựa chọn:</label>
                                     <select class="custom-select" id="host-select-changes">
                                         <option value="0">Không cho phép (Chỉ chọn 1 lần)</option>
                                         <option value="1">Thay đổi tối đa 1 lần (Chọn 2 lần)</option>
                                         <option value="2">Thay đổi tối đa 2 lần (Chọn 3 lần)</option>
-                                        <option value="3">Thay đổi tối đa 3 lần (Chọn 4 lần)</option>
+                                        <option value="3" selected>Thay đổi tối đa 3 lần (Chọn 4 lần)</option>
                                         <option value="999">Không giới hạn (Đổi thoải mái)</option>
                                     </select>
                                 </div>

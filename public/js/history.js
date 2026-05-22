@@ -95,6 +95,7 @@ export function recordMatchHistory(isTie, results, ultimateLoserId, roundNumber,
     const roundInfo = {
         roundNumber: roundNumber,
         roundType: roundType,
+        gameMode: STATE.currentMode,
         time: timeStr,
         isTie: isTie,
         ultimateLoserId: ultimateLoserId,
@@ -252,7 +253,12 @@ export function renderHistoryModal() {
             headerStyle = 'color: var(--neon-blue); text-shadow: 0 0 5px var(--neon-blue-glow);';
         }
 
-        const modeName = round.roundType === 'oan-tu-ti' ? 'Oẳn Tù Tì' : 'Nhiều Ra Ít Bị';
+        let modeName = 'Nhiều Ra Ít Bị';
+        if (round.roundType === 'oan-tu-ti') {
+            modeName = 'Oẳn Tù Tì';
+        } else if (round.gameMode === 'minority-out') {
+            modeName = 'Ít Ra Nhiều Bị';
+        }
 
         let choicesHtml = '';
         round.details.forEach(det => {

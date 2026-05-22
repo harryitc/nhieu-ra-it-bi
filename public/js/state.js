@@ -6,8 +6,8 @@ export const STATE = {
     roomCode: null,
     myPlayer: null, // { id, name, color, isHost, isSpectator, isSafe }
     players: [],    // Array of sanitized players from server
-    currentMode: 'majority-out',
-    maxChanges: 0,   // Maximum times a player can change their choice
+    currentMode: 'oan-tu-ti',
+    maxChanges: 3,   // Maximum times a player can change their choice
     choiceChanges: 0, // Number of times local player changed choice in current round
     myChoice: null,
     soundEnabled: true,
@@ -19,5 +19,5 @@ export const STATE = {
     playerStats: {},
     deliberateLeave: false,
     roundNumber: 1,
-    roundType: 'nhieu-ra-it-bi'
+    roundType: 'oan-tu-ti'
 };

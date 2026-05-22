@@ -261,7 +261,7 @@ export function setupActiveRound(roundNumber, roundType, gameMode) {
         STATE.currentMode = gameMode;
     }
     STATE.roundNumber = roundNumber || 1;
-    STATE.roundType = roundType || 'nhieu-ra-it-bi';
+    STATE.roundType = roundType || 'oan-tu-ti';
     
     STATE.myChoice = null;
     STATE.choiceChanges = 0;
@@ -272,16 +272,16 @@ export function setupActiveRound(roundNumber, roundType, gameMode) {
     if (codeLabel) codeLabel.textContent = STATE.roomCode;
     
     const modeTitles = {
+        'oan-tu-ti': 'Oẳn Tù Tì',
         'majority-out': 'Nhiều Ra, Ít Bị',
-        'white-out': 'Trắng Ra, Đen Bị',
-        'black-out': 'Đen Ra, Trắng Bị'
+        'minority-out': 'Ít Ra, Nhiều Bị'
     };
     
     const modeTitleText = modeTitles[STATE.currentMode] || 'Nhiều Ra, Ít Bị';
     const modeTitleEl = document.getElementById('current-mode-title');
     if (modeTitleEl) {
         if (STATE.roundType === 'oan-tu-ti') {
-            modeTitleEl.textContent = `Vòng ${STATE.roundNumber}: Chung Kết Oẳn Tù Tì`;
+            modeTitleEl.textContent = `Vòng ${STATE.roundNumber}: Oẳn Tù Tì`;
         } else {
             modeTitleEl.textContent = `Vòng ${STATE.roundNumber}: ${modeTitleText}`;
         }
@@ -640,39 +640,454 @@ export function triggerResultOverlay(isTie, results, ultimateLoserId, roundNumbe
             }
         }
 
-        // Render summary items lists
-        results.forEach(res => {
-            const item = document.createElement('div');
-            item.className = 'result-summary-item';
-            
-            const isSpectator = res.isSpectator;
-            const isSafe = res.isSafe;
-            const isLoser = res.status === 'loser';
-            
-            let statusText = 'Đang Chơi';
-            let statusClass = 'is-playing';
-            
-            if (isSpectator) {
-                statusText = 'Quan Sát';
-                statusClass = 'is-spectator';
-            } else if (res.status === 'safe' || isSafe) {
-                statusText = 'An Toàn';
-                statusClass = 'is-safe';
-            } else if (isLoser) {
-                statusText = 'Bị Chọn';
-                statusClass = 'is-loser';
-            }
-            
-            let choiceText = res.choice ? res.choice.toUpperCase() : 'KHÔNG CHỌN';
+        if (roundType === 'oan-tu-ti') {
+            // Group players for Oẳn Tù Tì Grid
+            const buaPlayers = [];
+            const keoPlayers = [];
+            const baoPlayers = [];
+            const nonContenders = [];
 
-            item.innerHTML = `
-                <span class="summary-item-name" style="color: ${res.color.value}">${res.name}</span>
-                <span class="summary-item-choice">(Chọn: ${choiceText})</span>
-                <span class="summary-item-status ${statusClass}">${statusText}</span>
+            results.forEach(res => {
+                if (res.isSpectator) {
+                    nonContenders.push(res);
+                } else if (res.choice === 'búa') {
+                    buaPlayers.push(res);
+                } else if (res.choice === 'kéo') {
+                    keoPlayers.push(res);
+                } else if (res.choice === 'bao') {
+                    baoPlayers.push(res);
+                } else {
+                    nonContenders.push(res);
+                }
+            });
+
+            const isBuaSafe = buaPlayers.length > 0 && buaPlayers.some(p => p.status === 'safe');
+            const buaStatusText = isBuaSafe ? 'AN TOÀN ✓' : 'CHƯA AN TOÀN ✗';
+            const buaStatusClass = isBuaSafe ? 'status-safe' : 'status-danger';
+            const buaColumnSafeClass = isBuaSafe ? 'safe-col' : '';
+
+            const isKeoSafe = keoPlayers.length > 0 && keoPlayers.some(p => p.status === 'safe');
+            const keoStatusText = isKeoSafe ? 'AN TOÀN ✓' : 'CHƯA AN TOÀN ✗';
+            const keoStatusClass = isKeoSafe ? 'status-safe' : 'status-danger';
+            const keoColumnSafeClass = isKeoSafe ? 'safe-col' : '';
+
+            const isBaoSafe = baoPlayers.length > 0 && baoPlayers.some(p => p.status === 'safe');
+            const baoStatusText = isBaoSafe ? 'AN TOÀN ✓' : 'CHƯA AN TOÀN ✗';
+            const baoStatusClass = isBaoSafe ? 'status-safe' : 'status-danger';
+            const baoColumnSafeClass = isBaoSafe ? 'safe-col' : '';
+
+            const gridHtml = `
+            <div class="oan-tu-ti-grid animate-fade-in">
+                <!-- BÚA COLUMN -->
+                <div class="choice-column choice-bua-column ${buaColumnSafeClass}">
+                    <div class="choice-column-header">
+                        <span class="choice-symbol">✊</span>
+                        <h3>BÚA</h3>
+                        <span class="column-status-badge ${buaStatusClass}">${buaStatusText}</span>
+                    </div>
+                    <div class="choice-column-players">
+                        ${buaPlayers.length > 0 ? buaPlayers.map(p => `
+                            <div class="choice-player-card">
+                                <div class="player-avatar-circle" style="background: ${p.color.value}; box-shadow: 0 0 10px ${p.color.value}40; width: 24px; height: 24px; font-size: 0.75rem; line-height: 24px;">
+                                    ${p.name.charAt(0).toUpperCase()}
+                                </div>
+                                <span class="choice-player-name" style="color: ${p.color.value}">${p.name}</span>
+                            </div>
+                        `).join('') : '<div class="no-player-text" style="color: rgba(255,255,255,0.2); font-size: 0.8rem; font-style: italic; text-align: center; margin: auto;">Trống</div>'}
+                    </div>
+                </div>
+
+                <!-- ARROW BÚA -> KÉO -->
+                <div class="choice-relation-arrow arrow-horizontal bua-keo">
+                    <svg viewBox="0 0 40 20">
+                        <defs>
+                            <linearGradient id="grad-bua-keo-ui" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#bd00ff" />
+                                <stop offset="100%" stop-color="#ff3131" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M 5,10 L 30,10" stroke="url(#grad-bua-keo-ui)" stroke-width="2" fill="none" />
+                        <polygon points="30,7 37,10 30,13" fill="#ff3131" />
+                    </svg>
+                </div>
+                <div class="choice-relation-arrow arrow-vertical bua-keo">
+                    <svg viewBox="0 0 40 20">
+                        <path d="M 5,10 L 30,10" stroke="#ff3131" stroke-width="2" fill="none" />
+                        <polygon points="30,7 37,10 30,13" fill="#ff3131" />
+                    </svg>
+                </div>
+
+                <!-- KÉO COLUMN -->
+                <div class="choice-column choice-keo-column ${keoColumnSafeClass}">
+                    <div class="choice-column-header">
+                        <span class="choice-symbol">✌️</span>
+                        <h3>KÉO</h3>
+                        <span class="column-status-badge ${keoStatusClass}">${keoStatusText}</span>
+                    </div>
+                    <div class="choice-column-players">
+                        ${keoPlayers.length > 0 ? keoPlayers.map(p => `
+                            <div class="choice-player-card">
+                                <div class="player-avatar-circle" style="background: ${p.color.value}; box-shadow: 0 0 10px ${p.color.value}40; width: 24px; height: 24px; font-size: 0.75rem; line-height: 24px;">
+                                    ${p.name.charAt(0).toUpperCase()}
+                                </div>
+                                <span class="choice-player-name" style="color: ${p.color.value}">${p.name}</span>
+                            </div>
+                        `).join('') : '<div class="no-player-text" style="color: rgba(255,255,255,0.2); font-size: 0.8rem; font-style: italic; text-align: center; margin: auto;">Trống</div>'}
+                    </div>
+                </div>
+
+                <!-- ARROW KÉO -> BAO -->
+                <div class="choice-relation-arrow arrow-horizontal keo-bao">
+                    <svg viewBox="0 0 40 20">
+                        <defs>
+                            <linearGradient id="grad-keo-bao-ui" x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stop-color="#ff3131" />
+                                <stop offset="100%" stop-color="#39ff14" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M 5,10 L 30,10" stroke="url(#grad-keo-bao-ui)" stroke-width="2" fill="none" />
+                        <polygon points="30,7 37,10 30,13" fill="#39ff14" />
+                    </svg>
+                </div>
+                <div class="choice-relation-arrow arrow-vertical keo-bao">
+                    <svg viewBox="0 0 40 20">
+                        <path d="M 5,10 L 30,10" stroke="#39ff14" stroke-width="2" fill="none" />
+                        <polygon points="30,7 37,10 30,13" fill="#39ff14" />
+                    </svg>
+                </div>
+
+                <!-- BAO COLUMN -->
+                <div class="choice-column choice-bao-column ${baoColumnSafeClass}">
+                    <div class="choice-column-header">
+                        <span class="choice-symbol">✋</span>
+                        <h3>BAO</h3>
+                        <span class="column-status-badge ${baoStatusClass}">${baoStatusText}</span>
+                    </div>
+                    <div class="choice-column-players">
+                        ${baoPlayers.length > 0 ? baoPlayers.map(p => `
+                            <div class="choice-player-card">
+                                <div class="player-avatar-circle" style="background: ${p.color.value}; box-shadow: 0 0 10px ${p.color.value}40; width: 24px; height: 24px; font-size: 0.75rem; line-height: 24px;">
+                                    ${p.name.charAt(0).toUpperCase()}
+                                </div>
+                                <span class="choice-player-name" style="color: ${p.color.value}">${p.name}</span>
+                            </div>
+                        `).join('') : '<div class="no-player-text" style="color: rgba(255,255,255,0.2); font-size: 0.8rem; font-style: italic; text-align: center; margin: auto;">Trống</div>'}
+                    </div>
+                </div>
+
+                <!-- CURVED ARROW BAO -> BÚA -->
+                <div class="choice-relation-arrow arrow-curved-bao-bua">
+                    <svg viewBox="0 0 400 40" class="curved-arrow-svg">
+                        <defs>
+                            <linearGradient id="grad-bao-bua-ui" x1="100%" y1="0%" x2="0%" y2="0%">
+                                <stop offset="0%" stop-color="#39ff14" />
+                                <stop offset="100%" stop-color="#bd00ff" />
+                            </linearGradient>
+                        </defs>
+                        <path d="M 350,10 Q 200,32 50,10" stroke="url(#grad-bao-bua-ui)" stroke-width="2" fill="none" stroke-dasharray="4 4" class="pulsing-path" />
+                        <polygon points="50,14 39,10 50,6" fill="#bd00ff" />
+                        <text x="200" y="24" fill="rgba(255,255,255,0.5)" font-size="8" text-anchor="middle" font-weight="bold">Bao khắc chế Búa</text>
+                    </svg>
+                </div>
+            </div>
             `;
-            summaryList.appendChild(item);
-        });
+
+            summaryList.innerHTML = gridHtml;
+
+            const safeFromPrev = nonContenders.filter(p => !p.isSpectator);
+            const spectatorsOnly = nonContenders.filter(p => p.isSpectator);
+
+            if (safeFromPrev.length > 0) {
+                const safeGroup = document.createElement('div');
+                safeGroup.className = 'result-group safe animate-fade-in';
+                safeGroup.style.marginTop = '15px';
+                safeGroup.innerHTML = `
+                    <div class="result-group-title">
+                        <span class="material-symbols-rounded">shield</span>
+                        <span>Đã An Toàn Từ Vòng Trước (${safeFromPrev.length})</span>
+                    </div>
+                    <div class="safe-pills-container">
+                        ${safeFromPrev.map(p => `
+                            <div class="safe-player-pill">
+                                <span class="safe-pill-name" style="color: ${p.color.value}" title="${p.name}">${p.name}</span>
+                                <span class="safe-pill-check">✓</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                summaryList.appendChild(safeGroup);
+            }
+
+            if (spectatorsOnly.length > 0) {
+                const specGroup = document.createElement('div');
+                specGroup.className = 'result-group spectators animate-fade-in';
+                specGroup.style.marginTop = '15px';
+                specGroup.innerHTML = `
+                    <div class="result-group-title">
+                        <span class="material-symbols-rounded">visibility</span>
+                        <span>Quan Sát Viên (${spectatorsOnly.length})</span>
+                    </div>
+                    <div class="spectators-container">
+                        ${spectatorsOnly.map(p => `
+                            <div class="spectator-pill">${p.name}</div>
+                        `).join('')}
+                    </div>
+                `;
+                summaryList.appendChild(specGroup);
+            }
+        } else {
+            // Group players into 3 categories: unsafe/danger, safe, spectators
+            const unsafePlayers = [];
+            const safePlayers = [];
+            const spectatorPlayers = [];
+
+            results.forEach(res => {
+                if (res.isSpectator) {
+                    spectatorPlayers.push(res);
+                } else if (res.status === 'loser') {
+                    unsafePlayers.push(res);
+                } else {
+                    safePlayers.push(res);
+                }
+            });
+
+            // Helper for choice display names
+            const getChoiceDisplayName = (choice) => {
+                if (!choice) return 'Không Chọn ❌';
+                const mapping = {
+                    'sap': 'Sấp 🤚',
+                    'ngua': 'Ngửa 🖐️',
+                    'keo': 'Kéo ✌️',
+                    'bua': 'Búa ✊',
+                    'bao': 'Bao 🖐️'
+                };
+                return mapping[choice] || choice.toUpperCase();
+            };
+
+            // Helper for choice neon border color
+            const getChoiceAccentColor = (choice) => {
+                const mapping = {
+                    'sap': '#00f0ff',
+                    'ngua': '#ffdf00',
+                    'keo': '#ff3131',
+                    'bua': '#bd00ff',
+                    'bao': '#39ff14'
+                };
+                return mapping[choice] || 'rgba(255,255,255,0.2)';
+            };
+
+            // 1. Render Unsafe/Danger section if not empty
+            if (unsafePlayers.length > 0) {
+                const dangerGroup = document.createElement('div');
+                dangerGroup.className = 'result-group danger animate-fade-in';
+                dangerGroup.innerHTML = `
+                    <div class="result-group-title">
+                        <span class="material-symbols-rounded">gavel</span>
+                        <span>Nhóm Chưa An Toàn (${unsafePlayers.length})</span>
+                    </div>
+                    <div class="danger-cards-container"></div>
+                `;
+                const container = dangerGroup.querySelector('.danger-cards-container');
+                unsafePlayers.forEach(p => {
+                    const card = document.createElement('div');
+                    card.className = 'danger-player-card';
+                    
+                    const initials = p.name ? p.name.charAt(0).toUpperCase() : '?';
+                    const accent = getChoiceAccentColor(p.choice);
+                    
+                    card.innerHTML = `
+                        <div class="danger-player-info">
+                            <div class="player-avatar-circle" style="background: ${p.color.value}; box-shadow: 0 0 10px ${p.color.value}40">
+                                ${initials}
+                            </div>
+                            <span class="danger-player-name" style="color: ${p.color.value}">${p.name}</span>
+                        </div>
+                        <div class="danger-player-choice-badge" style="border-color: ${accent}; box-shadow: 0 0 8px ${accent}30">
+                            <span style="color: ${accent}">${getChoiceDisplayName(p.choice)}</span>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
+                summaryList.appendChild(dangerGroup);
+            }
+
+            // 2. Render Safe section if not empty
+            if (safePlayers.length > 0) {
+                const safeGroup = document.createElement('div');
+                safeGroup.className = 'result-group safe animate-fade-in';
+                safeGroup.innerHTML = `
+                    <div class="result-group-title">
+                        <span class="material-symbols-rounded">shield</span>
+                        <span>Nhóm Đã An Toàn (${safePlayers.length})</span>
+                    </div>
+                    <div class="safe-pills-container"></div>
+                `;
+                const container = safeGroup.querySelector('.safe-pills-container');
+                safePlayers.forEach(p => {
+                    const pill = document.createElement('div');
+                    pill.className = 'safe-player-pill';
+                    
+                    pill.innerHTML = `
+                        <span class="safe-pill-name" style="color: ${p.color.value}" title="${p.name}">${p.name}</span>
+                        <span class="safe-pill-choice">(${p.choice ? p.choice.toUpperCase() : 'N/A'})</span>
+                        <span class="safe-pill-check">✓</span>
+                    `;
+                    container.appendChild(pill);
+                });
+                summaryList.appendChild(safeGroup);
+            }
+
+            // 3. Render Spectators section if not empty
+            if (spectatorPlayers.length > 0) {
+                const specGroup = document.createElement('div');
+                specGroup.className = 'result-group spectators animate-fade-in';
+                specGroup.innerHTML = `
+                    <div class="result-group-title">
+                        <span class="material-symbols-rounded">visibility</span>
+                        <span>Quan Sát Viên (${spectatorPlayers.length})</span>
+                    </div>
+                    <div class="spectators-container"></div>
+                `;
+                const container = specGroup.querySelector('.spectators-container');
+                spectatorPlayers.forEach(p => {
+                    const pill = document.createElement('div');
+                    pill.className = 'spectator-pill';
+                    pill.textContent = p.name;
+                    container.appendChild(pill);
+                });
+            }
+        }
     }
 
     overlay.classList.add('active');
+}
+
+export function updateSelectionTimerUI(timeLeft) {
+    const countdownText = document.getElementById('countdown-text');
+    if (!countdownText) return;
+
+    if (timeLeft !== null && timeLeft <= 10 && timeLeft > 0) {
+        countdownText.style.display = 'block';
+        countdownText.textContent = timeLeft;
+        countdownText.classList.add('blinking-timer');
+        
+        // Hide Host reveal button and waiting spinner to prevent overlapping when countdown is active
+        const btnReveal = document.getElementById('btn-reveal-all');
+        if (btnReveal) btnReveal.classList.add('hidden');
+        const waitMsg = document.getElementById('player-waiting-reveal-msg');
+        if (waitMsg) waitMsg.classList.add('hidden');
+    } else {
+        countdownText.style.display = 'none';
+        countdownText.classList.remove('blinking-timer');
+        
+        // Restore Host reveal button/waiting spinner if not counting down reveal
+        if (!STATE.isCountingDown && document.getElementById('play-screen').classList.contains('active')) {
+            const isSpectator = STATE.myPlayer.isSpectator;
+            const isSafe = STATE.myPlayer.isSafe;
+            const btnReveal = document.getElementById('btn-reveal-all');
+            const waitMsg = document.getElementById('player-waiting-reveal-msg');
+            
+            if (isSpectator) {
+                if (btnReveal) btnReveal.classList.add('hidden');
+                if (waitMsg) {
+                    waitMsg.classList.remove('hidden');
+                    waitMsg.innerHTML = `
+                        <div class="waiting-spinner"></div>
+                        <p>Bạn đang xem trận đấu...</p>
+                    `;
+                }
+            } else if (isSafe) {
+                if (btnReveal) btnReveal.classList.add('hidden');
+                if (waitMsg) {
+                    waitMsg.classList.remove('hidden');
+                    waitMsg.innerHTML = `
+                        <div class="waiting-spinner"></div>
+                        <p>Bạn đã AN TOÀN! Đang xem trận đấu...</p>
+                    `;
+                }
+            } else {
+                if (STATE.myPlayer.isHost) {
+                    if (btnReveal) btnReveal.classList.remove('hidden');
+                    if (waitMsg) waitMsg.classList.add('hidden');
+                } else {
+                    if (btnReveal) btnReveal.classList.add('hidden');
+                    if (waitMsg) {
+                        waitMsg.classList.remove('hidden');
+                        waitMsg.innerHTML = `
+                            <div class="waiting-spinner"></div>
+                            <p>Đợi lật tay...</p>
+                        `;
+                    }
+                }
+            }
+        }
+    }
+}
+
+export function updateAutoRevealTimerUI(timeLeft) {
+    const btnReveal = document.getElementById('btn-reveal-all');
+    const waitMsg = document.getElementById('player-waiting-reveal-msg');
+
+    if (STATE.myPlayer.isHost) {
+        if (btnReveal) {
+            btnReveal.classList.remove('hidden');
+            // Host is allowed to manually trigger reveal even during countdown!
+            const unchosenCount = STATE.players.filter(p => !p.isSpectator && !p.isSafe && !p.hasChosen).length;
+            if (unchosenCount === 0) {
+                btnReveal.classList.remove('disabled');
+                btnReveal.disabled = false;
+            }
+            btnReveal.textContent = `LẬT TAY! (${timeLeft})`;
+        }
+        if (waitMsg) waitMsg.classList.add('hidden');
+    } else {
+        if (btnReveal) btnReveal.classList.add('hidden');
+        if (waitMsg) {
+            waitMsg.classList.remove('hidden');
+            const pEl = waitMsg.querySelector('p');
+            if (pEl) {
+                pEl.textContent = `Tự động lật tay sau ${timeLeft}s...`;
+            } else {
+                waitMsg.innerHTML = `
+                    <div class="waiting-spinner"></div>
+                    <p>Tự động lật tay sau ${timeLeft}s...</p>
+                `;
+            }
+        }
+    }
+}
+
+export function cancelAutoRevealTimerUI() {
+    const btnReveal = document.getElementById('btn-reveal-all');
+    const waitMsg = document.getElementById('player-waiting-reveal-msg');
+
+    if (STATE.myPlayer.isHost) {
+        if (btnReveal) {
+            btnReveal.textContent = 'LẬT TAY!';
+            // Also re-disable if unchosenCount > 0
+            const unchosenCount = STATE.players.filter(p => !p.isSpectator && !p.isSafe && !p.hasChosen).length;
+            if (unchosenCount > 0) {
+                btnReveal.classList.add('disabled');
+                btnReveal.disabled = true;
+            } else {
+                btnReveal.classList.remove('disabled');
+                btnReveal.disabled = false;
+            }
+        }
+    } else {
+        if (waitMsg) {
+            const pEl = waitMsg.querySelector('p');
+            const isSpectator = STATE.myPlayer.isSpectator;
+            const isSafe = STATE.myPlayer.isSafe;
+            if (pEl) {
+                if (isSpectator) {
+                    pEl.textContent = 'Bạn đang xem trận đấu...';
+                } else if (isSafe) {
+                    pEl.textContent = 'Bạn đã AN TOÀN! Đang xem trận đấu...';
+                } else {
+                    pEl.textContent = 'Đợi lật tay...';
+                }
+            }
+        }
+    }
 }

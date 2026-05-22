@@ -6,7 +6,15 @@ import { SOUNDS } from './sounds.js';
 import { CONFETTI } from './confetti.js';
 import { showToast, showModalAlert, showScreen, escapeHtml } from './ui_common.js';
 import { loadStoredHistoryAndStats, renderTransparentHistoryList } from './history.js';
-import { renderPlayersCircle, setupActiveRound, executeRevealCountdown, revealOutcomes } from './game.js';
+import { 
+    renderPlayersCircle, 
+    setupActiveRound, 
+    executeRevealCountdown, 
+    revealOutcomes,
+    updateSelectionTimerUI,
+    updateAutoRevealTimerUI,
+    cancelAutoRevealTimerUI
+} from './game.js';
 
 export function initWebSocket() {
     if (STATE.socket) return;
@@ -195,9 +203,9 @@ export function handleServerMessage(msg) {
             document.getElementById('lobby-room-code').textContent = msg.roomCode;
             
             const modeTitles = {
-                'majority-out': 'Nhiều Ra, Ít Bị (Phổ biến)',
-                'white-out': 'Trắng Ra, Đen Bị',
-                'black-out': 'Đen Ra, Trắng Bị'
+                'oan-tu-ti': 'Oẳn Tù Tì (Mặc định)',
+                'majority-out': 'Nhiều Ra, Ít Bị',
+                'minority-out': 'Ít Ra, Nhiều Bị'
             };
             document.getElementById('lobby-mode-name').textContent = modeTitles[STATE.currentMode];
             
@@ -226,9 +234,9 @@ export function handleServerMessage(msg) {
             document.getElementById('lobby-room-code').textContent = msg.roomCode;
             
             const modeTitles = {
+                'oan-tu-ti': 'Oẳn Tù Tì',
                 'majority-out': 'Nhiều Ra, Ít Bị',
-                'white-out': 'Trắng Ra, Đen Bị',
-                'black-out': 'Đen Ra, Trắng Bị'
+                'minority-out': 'Ít Ra, Nhiều Bị'
             };
             document.getElementById('lobby-mode-name').textContent = modeTitles[msg.gameMode];
 
@@ -252,6 +260,16 @@ export function handleServerMessage(msg) {
                 
                 showScreen('play-screen');
                 renderPlayersCircle();
+
+                // Restore active timers upon rejoining/connecting
+                if (msg.gameState === 'playing') {
+                    if (msg.selectionTimeLeft !== undefined && msg.selectionTimeLeft !== null) {
+                        updateSelectionTimerUI(msg.selectionTimeLeft);
+                    }
+                    if (msg.revealTimeLeft !== undefined && msg.revealTimeLeft !== null) {
+                        updateAutoRevealTimerUI(msg.revealTimeLeft);
+                    }
+                }
             } else {
                 showScreen('lobby-screen');
                 updateLobbyControls();
@@ -280,9 +298,9 @@ export function handleServerMessage(msg) {
             STATE.maxChanges = msg.maxChanges;
             
             const modeTitles = {
+                'oan-tu-ti': 'Oẳn Tù Tì',
                 'majority-out': 'Nhiều Ra, Ít Bị',
-                'white-out': 'Trắng Ra, Đen Bị',
-                'black-out': 'Đen Ra, Trắng Bị'
+                'minority-out': 'Ít Ra, Nhiều Bị'
             };
             
             const lobbyModeName = document.getElementById('lobby-mode-name');
@@ -385,6 +403,24 @@ export function handleServerMessage(msg) {
         case 'ROUND_RESET': {
             setupActiveRound(msg.roundNumber, msg.roundType);
             CONFETTI.stop();
+            break;
+        }
+
+        // --- SELECTION TIMER ---
+        case 'SELECTION_TIMER': {
+            updateSelectionTimerUI(msg.timeLeft);
+            break;
+        }
+
+        // --- AUTO REVEAL TIMER ---
+        case 'AUTO_REVEAL_TIMER': {
+            updateAutoRevealTimerUI(msg.timeLeft);
+            break;
+        }
+
+        // --- AUTO REVEAL CANCELLED ---
+        case 'AUTO_REVEAL_CANCELLED': {
+            cancelAutoRevealTimerUI();
             break;
         }
 
