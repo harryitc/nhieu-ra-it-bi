@@ -30,10 +30,19 @@ export function closeSocket() {
 export function initWebSocket() {
   if (socket && socket.readyState !== WebSocket.CLOSED) return
 
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  // In Vite dev mode, connect directly to the backend port
-  const host = import.meta.env.DEV ? 'localhost:3000' : window.location.host
-  socket = new WebSocket(`${protocol}//${host}`)
+  let wsUrl
+  if (import.meta.env.VITE_WS_URL) {
+    // Explicit override: used when frontend (Vercel) is separate from backend (Render)
+    wsUrl = import.meta.env.VITE_WS_URL
+  } else if (import.meta.env.DEV) {
+    // Local dev: route through Vite /ws proxy to avoid mixed-content issues
+    wsUrl = `ws://${window.location.host}/ws`
+  } else {
+    // Same-origin prod (Render): WS on same host as page
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    wsUrl = `${protocol}//${window.location.host}/`
+  }
+  socket = new WebSocket(wsUrl)
 
   socket.onopen = () => {
     console.log('[WS] Connected to server.')
