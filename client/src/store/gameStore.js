@@ -19,12 +19,12 @@ const useGameStore = create(
       players: [],    // sanitized player array from server
 
       // ── CONFIG ─────────────────────────────────────────────────────────
-      currentMode: 'majority-out',
+      currentMode: 'oan-tu-ti',
       maxChanges: 0,
 
       // ── ROUND ──────────────────────────────────────────────────────────
       roundNumber: 1,
-      roundType: 'nhieu-ra-it-bi', // 'nhieu-ra-it-bi' | 'oan-tu-ti'
+      roundType: 'oan-tu-ti', // 'oan-tu-ti' by default
       myChoice: null,
       choiceChanges: 0,
       isCountingDown: false,
@@ -192,7 +192,7 @@ const useGameStore = create(
       handleRoundReset: (msg) => {
         set({
           roundNumber: msg.roundNumber ?? get().roundNumber + 1,
-          roundType: msg.roundType ?? 'nhieu-ra-it-bi',
+          roundType: msg.roundType ?? 'oan-tu-ti',
           myChoice: null,
           choiceChanges: 0,
           isCountingDown: false,
@@ -245,7 +245,7 @@ const useGameStore = create(
           selectionTimeLeft: null,
           autoRevealTimeLeft: null,
           roundNumber: 1,
-          roundType: 'nhieu-ra-it-bi',
+          roundType: 'oan-tu-ti',
           unreadMessages: 0,
           chatMessages: [],
           chatExpanded: false,

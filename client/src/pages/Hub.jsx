@@ -20,12 +20,23 @@ const GAMES = [
     title: 'Sinh Tồn 2D',
     subtitle: 'Ăn thua như agar.io',
     desc: 'Di chuyển, ăn pellet và nuốt cell nhỏ hơn để lớn lên. Cuộc chiến sinh tồn thời gian thực nhiều người!',
-    badge: 'Mới',
+    badge: null,
     color: 'var(--neon-green)',
     available: true
   },
   {
-    id: 'game3',
+    id: 'paperio',
+    path: '/paperio',
+    icon: 'grid_view',
+    title: 'Paper.io',
+    subtitle: 'Chiếm đất – Cắt đuôi đối thủ',
+    desc: 'Đi vẽ vùng đất, quay về để biến vùng đi qua thành lãnh thổ. Cắt đuôi người khác để hạ họ. Đạt 55% bản đồ là thắng!',
+    badge: 'Mới',
+    color: 'var(--neon-orange, #ffa502)',
+    available: true
+  },
+  {
+    id: 'game4',
     path: '/coming-soon',
     icon: 'quiz',
     title: 'Câu Đố',
