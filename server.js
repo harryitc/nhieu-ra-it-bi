@@ -14,7 +14,7 @@ app.use(express.static(path.join(__dirname, 'client/dist')));
 const PORT = process.env.PORT || 3000;
 
 // Lobbies in-memory state
-// Structure: { [roomCode]: { code, players: [], gameMode, gameState } }
+// Structure: { [roomCode]: { code, players: [], gameMode, gameState, cleanupTimer? } }
 const lobbies = {};
 
 // Harmonic player color palette matching client
@@ -64,6 +64,21 @@ function sendToPlayer(ws, data) {
 
 // Helper: Get sanitized player list for public broadcast (excludes actual choices during gameplay)
 function getSanitizedPlayers(lobby) {
+    return lobby.players.filter(p => p.isOnline).map(p => ({
+        id: p.id,
+        name: p.name,
+        color: p.color,
+        isHost: p.isHost,
+        isOnline: p.isOnline,
+        hasChosen: p.choice !== null,
+        status: p.status,
+        isSpectator: p.isSpectator || false,
+        isSafe: p.isSafe || false
+    }));
+}
+
+// Helper: Get full player list INCLUDING offline players (for reconnection-aware views)
+function getAllPlayersForBroadcast(lobby) {
     return lobby.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -75,6 +90,179 @@ function getSanitizedPlayers(lobby) {
         isSpectator: p.isSpectator || false,
         isSafe: p.isSafe || false
     }));
+}
+
+// Helper: Delete lobby and clear all related timers
+function deleteLobby(roomCode) {
+    const lobby = lobbies[roomCode];
+    if (lobby) {
+        if (lobby.selectionInterval) {
+            clearInterval(lobby.selectionInterval);
+            lobby.selectionInterval = null;
+        }
+        if (lobby.revealInterval) {
+            clearInterval(lobby.revealInterval);
+            lobby.revealInterval = null;
+        }
+        if (lobby.revealTimeout) {
+            clearTimeout(lobby.revealTimeout);
+            lobby.revealTimeout = null;
+        }
+        if (lobby.cleanupTimer) {
+            clearTimeout(lobby.cleanupTimer);
+            lobby.cleanupTimer = null;
+        }
+        delete lobbies[roomCode];
+        console.log(`Lobby ${roomCode} deleted and all timers cleared.`);
+    }
+}
+
+// Helper: Start the 30-second selection timer for active players
+function startSelectionTimer(lobby, roomCode) {
+    if (lobby.selectionInterval) {
+        clearInterval(lobby.selectionInterval);
+        lobby.selectionInterval = null;
+    }
+    if (lobby.revealInterval) {
+        clearInterval(lobby.revealInterval);
+        lobby.revealInterval = null;
+    }
+    if (lobby.revealTimeout) {
+        clearTimeout(lobby.revealTimeout);
+        lobby.revealTimeout = null;
+    }
+
+    lobby.selectionTimeLeft = 30;
+    
+    // Broadcast initial state
+    broadcastToLobby(roomCode, {
+        type: 'SELECTION_TIMER',
+        timeLeft: lobby.selectionTimeLeft
+    });
+
+    lobby.selectionInterval = setInterval(() => {
+        if (!lobbies[roomCode] || lobby.gameState !== 'playing') {
+            clearInterval(lobby.selectionInterval);
+            lobby.selectionInterval = null;
+            return;
+        }
+
+        lobby.selectionTimeLeft--;
+
+        broadcastToLobby(roomCode, {
+            type: 'SELECTION_TIMER',
+            timeLeft: lobby.selectionTimeLeft
+        });
+
+        if (lobby.selectionTimeLeft <= 0) {
+            clearInterval(lobby.selectionInterval);
+            lobby.selectionInterval = null;
+
+            // Auto-select for any active players who haven't made a choice
+            let autoChosenCount = 0;
+            lobby.players.forEach(p => {
+                if (p.isOnline && !p.isSpectator && !p.isSafe && p.choice === null) {
+                    if (lobby.roundType === 'oan-tu-ti') {
+                        const choices = ['búa', 'kéo', 'bao'];
+                        p.choice = choices[Math.floor(Math.random() * choices.length)];
+                    } else {
+                        const choices = ['sấp', 'ngửa'];
+                        p.choice = choices[Math.floor(Math.random() * choices.length)];
+                    }
+                    p.hasChosen = true;
+                    p.choiceChanges = 0;
+                    autoChosenCount++;
+                }
+            });
+
+            if (autoChosenCount > 0) {
+                broadcastToLobby(roomCode, {
+                    type: 'PLAYER_LIST_UPDATE',
+                    players: getSanitizedPlayers(lobby)
+                });
+            }
+
+            checkAndStartAutoReveal(lobby, roomCode);
+        }
+    }, 1000);
+}
+
+// Helper: Check if all players have chosen, if so start 5s auto-reveal
+function checkAndStartAutoReveal(lobby, roomCode) {
+    if (!lobbies[roomCode] || lobby.gameState !== 'playing') return;
+
+    const activeContenders = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe);
+    const allChosen = activeContenders.every(p => p.choice !== null);
+
+    if (allChosen && activeContenders.length >= 2) {
+        // Stop selection timer since everyone has chosen!
+        if (lobby.selectionInterval) {
+            clearInterval(lobby.selectionInterval);
+            lobby.selectionInterval = null;
+            lobby.selectionTimeLeft = null;
+        }
+
+        if (lobby.revealInterval) return;
+
+        lobby.revealTimeLeft = 5;
+
+        broadcastToLobby(roomCode, {
+            type: 'AUTO_REVEAL_TIMER',
+            timeLeft: lobby.revealTimeLeft
+        });
+
+        lobby.revealInterval = setInterval(() => {
+            if (!lobbies[roomCode] || lobby.gameState !== 'playing') {
+                clearInterval(lobby.revealInterval);
+                lobby.revealInterval = null;
+                return;
+            }
+
+            lobby.revealTimeLeft--;
+
+            broadcastToLobby(roomCode, {
+                type: 'AUTO_REVEAL_TIMER',
+                timeLeft: lobby.revealTimeLeft
+            });
+
+            if (lobby.revealTimeLeft <= 0) {
+                clearInterval(lobby.revealInterval);
+                lobby.revealInterval = null;
+
+                console.log(`Auto-revealing room ${roomCode} due to 5s inactivity.`);
+
+                // 1. Send start countdown triggers to everyone
+                broadcastToLobby(roomCode, { type: 'REVEAL_COUNTDOWN' });
+
+                // 2. Pre-calculate outcomes
+                const currentRoundType = lobby.roundType || 'nhieu-ra-it-bi';
+                const outcome = computeLobbyResults(lobby);
+                lobby.gameState = 'revealed';
+
+                lobby.revealTimeout = setTimeout(() => {
+                    if (!lobbies[roomCode]) return;
+                    broadcastToLobby(roomCode, {
+                        type: 'REVEAL_RESULTS',
+                        isTie: outcome.isTie,
+                        results: outcome.results,
+                        ultimateLoserId: lobby.ultimateLoserId,
+                        roundNumber: lobby.roundNumber,
+                        roundType: currentRoundType
+                    });
+                }, 4000);
+            }
+        }, 1000);
+    } else {
+        // Cancel reveal timer if not all players have choices (e.g. someone reconnected/joined and choice is null)
+        if (lobby.revealInterval) {
+            clearInterval(lobby.revealInterval);
+            lobby.revealInterval = null;
+            lobby.revealTimeLeft = null;
+            broadcastToLobby(roomCode, {
+                type: 'AUTO_REVEAL_CANCELLED'
+            });
+        }
+    }
 }
 
 // Helper: Calculate results for a lobby
@@ -90,7 +278,7 @@ function computeLobbyResults(lobby) {
 
     let isTie = false;
 
-    // Handle Oẳn Tù Tì for exactly 2 active players
+    // Handle Oẳn Tù Tì
     if (lobby.roundType === 'oan-tu-ti') {
         if (activePlayers.length === 2) {
             const p1 = activePlayers[0];
@@ -120,12 +308,44 @@ function computeLobbyResults(lobby) {
                     lobby.ultimateLoserId = p1.id;
                 }
             }
+        } else if (activePlayers.length > 2) {
+            const choices = activePlayers.map(p => p.choice);
+            const uniqueChoices = new Set(choices);
+
+            if (uniqueChoices.size === 1 || uniqueChoices.size === 3) {
+                isTie = true;
+            } else if (uniqueChoices.size === 2) {
+                let winningChoice = '';
+                let losingChoice = '';
+
+                if (uniqueChoices.has('búa') && uniqueChoices.has('kéo')) {
+                    winningChoice = 'búa';
+                    losingChoice = 'kéo';
+                } else if (uniqueChoices.has('kéo') && uniqueChoices.has('bao')) {
+                    winningChoice = 'kéo';
+                    losingChoice = 'bao';
+                } else if (uniqueChoices.has('bao') && uniqueChoices.has('búa')) {
+                    winningChoice = 'bao';
+                    losingChoice = 'búa';
+                }
+
+                lobby.players.forEach(p => {
+                    if (p.isSpectator || p.isSafe) return;
+                    if (p.choice === winningChoice) {
+                        p.status = 'safe';
+                        p.isSafe = true;
+                    } else if (p.choice === losingChoice) {
+                        p.status = 'loser';
+                    }
+                });
+            } else {
+                isTie = true; // Fallback
+            }
         } else {
-            // Fallback just in case
-            isTie = true;
+            isTie = true; // Fallback
         }
     } else {
-        // Nhiều Ra Ít Bị mode (majority-out, white-out, black-out)
+        // Nhiều Ra Ít Bị mode (majority-out) và Ít Ra Nhiều Bị mode (minority-out)
         let sấpCount = 0;
         let ngửaCount = 0;
 
@@ -160,12 +380,22 @@ function computeLobbyResults(lobby) {
                     }
                 });
             }
-        } else if (lobby.gameMode === 'white-out') {
-            const allLosers = activePlayers.every(p => p.choice === 'sấp');
-            const allSafe = activePlayers.every(p => p.choice === 'ngửa');
-            if (allLosers || allSafe) {
+        } else if (lobby.gameMode === 'minority-out') {
+            if (sấpCount === ngửaCount || sấpCount === 0 || ngửaCount === 0) {
                 isTie = true;
+            } else if (sấpCount < ngửaCount) {
+                // 'sấp' is minority -> they are safe!
+                lobby.players.forEach(p => {
+                    if (p.isSpectator || p.isSafe) return;
+                    if (p.choice === 'sấp') {
+                        p.status = 'safe';
+                        p.isSafe = true;
+                    } else if (p.choice === 'ngửa') {
+                        p.status = 'loser';
+                    }
+                });
             } else {
+                // 'ngửa' is minority -> they are safe!
                 lobby.players.forEach(p => {
                     if (p.isSpectator || p.isSafe) return;
                     if (p.choice === 'ngửa') {
@@ -176,41 +406,27 @@ function computeLobbyResults(lobby) {
                     }
                 });
             }
-        } else if (lobby.gameMode === 'black-out') {
-            const allLosers = activePlayers.every(p => p.choice === 'ngửa');
-            const allSafe = activePlayers.every(p => p.choice === 'sấp');
-            if (allLosers || allSafe) {
-                isTie = true;
-            } else {
-                lobby.players.forEach(p => {
-                    if (p.isSpectator || p.isSafe) return;
-                    if (p.choice === 'sấp') {
-                        p.status = 'safe';
-                        p.isSafe = true;
-                    } else if (p.choice === 'ngửa') {
-                        p.status = 'loser';
-                    }
-                });
-            }
-        }
-
-        // If it's a tie, reset statuses for active players back to none
-        if (isTie) {
-            lobby.players.forEach(p => {
-                if (!p.isSafe && !p.isSpectator) {
-                    p.status = 'none';
-                }
-            });
         } else {
-            // Determine tournament progress if not a tie
-            const remainingActive = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe);
-            if (remainingActive.length === 1) {
-                lobby.ultimateLoserId = remainingActive[0].id;
-            } else if (remainingActive.length === 2) {
-                lobby.roundType = 'oan-tu-ti';
-            } else {
-                lobby.roundType = 'nhieu-ra-it-bi';
+            isTie = true; // Fallback
+        }
+    }
+
+    // Tie reset & tournament progress check for ALL modes
+    if (isTie) {
+        lobby.players.forEach(p => {
+            if (!p.isSafe && !p.isSpectator) {
+                p.status = 'none';
             }
+        });
+    } else {
+        // Determine tournament progress if not a tie
+        const remainingActive = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe);
+        if (remainingActive.length === 1) {
+            lobby.ultimateLoserId = remainingActive[0].id;
+        } else if (lobby.gameMode === 'oan-tu-ti' || remainingActive.length === 2) {
+            lobby.roundType = 'oan-tu-ti';
+        } else {
+            lobby.roundType = 'nhieu-ra-it-bi';
         }
     }
 
@@ -245,15 +461,18 @@ wss.on('connection', (ws) => {
                     const roomCode = generateRoomCode();
                     const hostName = data.hostName.trim();
                     
+                    const chosenMode = data.gameMode || 'oan-tu-ti';
+                    const startingRoundType = chosenMode === 'oan-tu-ti' ? 'oan-tu-ti' : 'nhieu-ra-it-bi';
+
                     lobbies[roomCode] = {
                         code: roomCode,
                         players: [],
-                        gameMode: data.gameMode || 'majority-out',
+                        gameMode: chosenMode,
                         gameState: 'waiting', // 'waiting' | 'playing' | 'revealed'
-                        maxChanges: 0, // Default: 0 changes allowed (only 1 choice)
+                        maxChanges: 3, // Default: 3 changes allowed
                         roundNumber: 1,
                         ultimateLoserId: null,
-                        roundType: 'nhieu-ra-it-bi'
+                        roundType: startingRoundType
                     };
 
                     currentPlayer = {
@@ -276,10 +495,10 @@ wss.on('connection', (ws) => {
                     sendToPlayer(ws, {
                         type: 'ROOM_CREATED',
                         roomCode: roomCode,
-                        maxChanges: 0,
+                        maxChanges: 3,
                         roundNumber: 1,
                         ultimateLoserId: null,
-                        roundType: 'nhieu-ra-it-bi',
+                        roundType: startingRoundType,
                         player: {
                             id: currentPlayer.id,
                             name: currentPlayer.name,
@@ -309,12 +528,73 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    if (lobby.players.length >= 15) {
+                    // --- Auto-reclaim: check if there's an offline player with the same name ---
+                    const offlineMatch = lobby.players.find(
+                        p => p.name.toLowerCase() === playerName.toLowerCase() && !p.isOnline
+                    );
+
+                    if (offlineMatch) {
+                        // Re-attach this socket to the offline player slot
+                        offlineMatch.ws = ws;
+                        offlineMatch.isOnline = true;
+                        currentPlayer = offlineMatch;
+                        currentRoomCode = roomCode;
+
+                        // Cancel lobby cleanup timer if it was set
+                        if (lobby.cleanupTimer) {
+                            clearTimeout(lobby.cleanupTimer);
+                            lobby.cleanupTimer = null;
+                        }
+
+                        console.log(`Player ${offlineMatch.name} reclaimed offline slot in Lobby ${roomCode} via JOIN_ROOM.`);
+
+                        sendToPlayer(ws, {
+                            type: 'ROOM_JOINED',
+                            roomCode: roomCode,
+                            gameMode: lobby.gameMode,
+                            gameState: lobby.gameState,
+                            maxChanges: typeof lobby.maxChanges === 'number' ? lobby.maxChanges : 3,
+                            roundNumber: lobby.roundNumber || 1,
+                            ultimateLoserId: lobby.ultimateLoserId || null,
+                            roundType: lobby.roundType || 'nhieu-ra-it-bi',
+                            isReconnect: true,
+                            selectionTimeLeft: lobby.selectionInterval ? lobby.selectionTimeLeft : null,
+                            revealTimeLeft: lobby.revealInterval ? lobby.revealTimeLeft : null,
+                            player: {
+                                id: offlineMatch.id,
+                                name: offlineMatch.name,
+                                color: offlineMatch.color,
+                                isHost: offlineMatch.isHost,
+                                isSpectator: offlineMatch.isSpectator || false,
+                                isSafe: offlineMatch.isSafe || false
+                            }
+                        });
+
+                        // Broadcast system reconnect notification
+                        broadcastToLobby(roomCode, {
+                            type: 'CHAT_MESSAGE',
+                            playerId: 'system',
+                            playerName: 'Hệ thống',
+                            playerColor: { value: '#39ff14' },
+                            message: `Người chơi ${offlineMatch.name} đã kết nối lại! 🔗`
+                        });
+
+                        // Broadcast updated player list
+                        broadcastToLobby(roomCode, {
+                            type: 'PLAYER_LIST_UPDATE',
+                            players: getSanitizedPlayers(lobby)
+                        });
+                        break;
+                    }
+
+                    // --- Normal new join ---
+                    const onlineCount = lobby.players.filter(p => p.isOnline).length;
+                    if (onlineCount >= 15) {
                         sendToPlayer(ws, { type: 'ERROR', message: 'Phòng đã đầy!' });
                         return;
                     }
 
-                    // Check duplicate name
+                    // Check duplicate name among ONLINE players
                     const nameExists = lobby.players.some(p => p.name.toLowerCase() === playerName.toLowerCase() && p.isOnline);
                     if (nameExists) {
                         sendToPlayer(ws, { type: 'ERROR', message: 'Tên này đã được sử dụng trong phòng!' });
@@ -326,7 +606,7 @@ wss.on('connection', (ws) => {
                     currentPlayer = {
                         id: 'player-' + Date.now() + '-' + Math.floor(Math.random()*1000),
                         name: playerName,
-                        color: PALETTE[lobby.players.length % PALETTE.length],
+                        color: PALETTE[lobby.players.filter(p => p.isOnline).length % PALETTE.length],
                         choice: null,
                         choiceChanges: 0,
                         status: 'none',
@@ -345,10 +625,12 @@ wss.on('connection', (ws) => {
                         roomCode: roomCode,
                         gameMode: lobby.gameMode,
                         gameState: lobby.gameState,
-                        maxChanges: lobby.maxChanges || 0,
+                        maxChanges: typeof lobby.maxChanges === 'number' ? lobby.maxChanges : 3,
                         roundNumber: lobby.roundNumber || 1,
                         ultimateLoserId: lobby.ultimateLoserId || null,
                         roundType: lobby.roundType || 'nhieu-ra-it-bi',
+                        selectionTimeLeft: lobby.selectionInterval ? lobby.selectionTimeLeft : null,
+                        revealTimeLeft: lobby.revealInterval ? lobby.revealTimeLeft : null,
                         player: {
                             id: currentPlayer.id,
                             name: currentPlayer.name,
@@ -360,6 +642,86 @@ wss.on('connection', (ws) => {
                     });
 
                     // Broadcast updated list to room
+                    broadcastToLobby(roomCode, {
+                        type: 'PLAYER_LIST_UPDATE',
+                        players: getSanitizedPlayers(lobby)
+                    });
+                    break;
+                }
+
+                // ------------------ REJOIN ROOM (Auto-reconnect) ------------------
+                case 'REJOIN_ROOM': {
+                    const roomCode = data.roomCode.trim().toUpperCase();
+                    const playerId = data.playerId;
+                    const playerName = data.playerName.trim();
+                    const lobby = lobbies[roomCode];
+
+                    if (!lobby) {
+                        // Room no longer exists, tell client to clear session
+                        sendToPlayer(ws, { type: 'REJOIN_FAILED', message: 'Phòng không còn tồn tại!' });
+                        return;
+                    }
+
+                    // Try to find the offline player by ID first, then by name
+                    let offlinePlayer = lobby.players.find(p => p.id === playerId && !p.isOnline);
+                    if (!offlinePlayer) {
+                        offlinePlayer = lobby.players.find(
+                            p => p.name.toLowerCase() === playerName.toLowerCase() && !p.isOnline
+                        );
+                    }
+
+                    if (!offlinePlayer) {
+                        // Player slot is gone or already online
+                        sendToPlayer(ws, { type: 'REJOIN_FAILED', message: 'Không tìm thấy phiên chơi cũ!' });
+                        return;
+                    }
+
+                    // Re-attach socket
+                    offlinePlayer.ws = ws;
+                    offlinePlayer.isOnline = true;
+                    currentPlayer = offlinePlayer;
+                    currentRoomCode = roomCode;
+
+                    // Cancel lobby cleanup timer if it was set
+                    if (lobby.cleanupTimer) {
+                        clearTimeout(lobby.cleanupTimer);
+                        lobby.cleanupTimer = null;
+                    }
+
+                    console.log(`Player ${offlinePlayer.name} reconnected to Lobby ${roomCode} via REJOIN_ROOM.`);
+
+                    sendToPlayer(ws, {
+                        type: 'ROOM_JOINED',
+                        roomCode: roomCode,
+                        gameMode: lobby.gameMode,
+                        gameState: lobby.gameState,
+                        maxChanges: typeof lobby.maxChanges === 'number' ? lobby.maxChanges : 3,
+                        roundNumber: lobby.roundNumber || 1,
+                        ultimateLoserId: lobby.ultimateLoserId || null,
+                        roundType: lobby.roundType || 'nhieu-ra-it-bi',
+                        isReconnect: true,
+                        selectionTimeLeft: lobby.selectionInterval ? lobby.selectionTimeLeft : null,
+                        revealTimeLeft: lobby.revealInterval ? lobby.revealTimeLeft : null,
+                        player: {
+                            id: offlinePlayer.id,
+                            name: offlinePlayer.name,
+                            color: offlinePlayer.color,
+                            isHost: offlinePlayer.isHost,
+                            isSpectator: offlinePlayer.isSpectator || false,
+                            isSafe: offlinePlayer.isSafe || false
+                        }
+                    });
+
+                    // Broadcast system reconnect notification
+                    broadcastToLobby(roomCode, {
+                        type: 'CHAT_MESSAGE',
+                        playerId: 'system',
+                        playerName: 'Hệ thống',
+                        playerColor: { value: '#39ff14' },
+                        message: `Người chơi ${offlinePlayer.name} đã kết nối lại! 🔗`
+                    });
+
+                    // Broadcast updated player list
                     broadcastToLobby(roomCode, {
                         type: 'PLAYER_LIST_UPDATE',
                         players: getSanitizedPlayers(lobby)
@@ -415,7 +777,7 @@ wss.on('connection', (ws) => {
 
                     // Determine starting round type
                     const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator).length;
-                    if (activePlayersCount === 2) {
+                    if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
                         lobby.roundType = 'oan-tu-ti';
                     } else {
                         lobby.roundType = 'nhieu-ra-it-bi';
@@ -434,6 +796,7 @@ wss.on('connection', (ws) => {
                         roundType: lobby.roundType,
                         ultimateLoserId: lobby.ultimateLoserId
                     });
+                    startSelectionTimer(lobby, currentRoomCode);
                     break;
                 }
 
@@ -471,7 +834,7 @@ wss.on('connection', (ws) => {
                     }
 
                     const isChanging = currentPlayer.choice !== null;
-                    const maxChanges = typeof lobby.maxChanges === 'number' ? lobby.maxChanges : 0;
+                    const maxChanges = typeof lobby.maxChanges === 'number' ? lobby.maxChanges : 3;
 
                     if (isChanging) {
                         if (maxChanges !== 999 && currentPlayer.choiceChanges >= maxChanges) {
@@ -495,6 +858,7 @@ wss.on('connection', (ws) => {
                         type: 'PLAYER_LIST_UPDATE',
                         players: getSanitizedPlayers(lobby)
                     });
+                    checkAndStartAutoReveal(lobby, currentRoomCode);
                     break;
                 }
 
@@ -513,6 +877,16 @@ wss.on('connection', (ws) => {
                     if (unchosenCount > 0) {
                         sendToPlayer(ws, { type: 'ERROR', message: 'Còn người chơi chưa hoàn thành lựa chọn!' });
                         return;
+                    }
+
+                    // Clear any running timers
+                    if (lobby.selectionInterval) {
+                        clearInterval(lobby.selectionInterval);
+                        lobby.selectionInterval = null;
+                    }
+                    if (lobby.revealInterval) {
+                        clearInterval(lobby.revealInterval);
+                        lobby.revealInterval = null;
                     }
 
                     // 1. Send start countdown triggers to everyone
@@ -562,7 +936,7 @@ wss.on('connection', (ws) => {
 
                         // Re-evaluate roundType for remaining active players
                         const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe).length;
-                        if (activePlayersCount === 2) {
+                        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
                             lobby.roundType = 'oan-tu-ti';
                         } else {
                             lobby.roundType = 'nhieu-ra-it-bi';
@@ -579,6 +953,7 @@ wss.on('connection', (ws) => {
                             roundNumber: lobby.roundNumber,
                             roundType: lobby.roundType
                         });
+                        startSelectionTimer(lobby, currentRoomCode);
                     } else {
                         // Tournament is finished -> BẮT ĐẦU TRẬN MỚI!
                         lobby.gameState = 'playing';
@@ -594,7 +969,7 @@ wss.on('connection', (ws) => {
                         });
 
                         const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator).length;
-                        if (activePlayersCount === 2) {
+                        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
                             lobby.roundType = 'oan-tu-ti';
                         } else {
                             lobby.roundType = 'nhieu-ra-it-bi';
@@ -613,6 +988,7 @@ wss.on('connection', (ws) => {
                             roundType: lobby.roundType,
                             ultimateLoserId: lobby.ultimateLoserId
                         });
+                        startSelectionTimer(lobby, currentRoomCode);
                     }
                     break;
                 }
@@ -630,7 +1006,7 @@ wss.on('connection', (ws) => {
                     lobby.gameState = 'waiting';
                     lobby.roundNumber = 1;
                     lobby.ultimateLoserId = null;
-                    lobby.roundType = 'nhieu-ra-it-bi';
+                    lobby.roundType = lobby.gameMode === 'oan-tu-ti' ? 'oan-tu-ti' : 'nhieu-ra-it-bi';
                     
                     lobby.players.forEach(p => {
                         p.choice = null;
@@ -681,6 +1057,54 @@ wss.on('connection', (ws) => {
                     });
                     break;
                 }
+
+                // ------------------ LEAVE ROOM (Deliberate) ------------------
+                case 'LEAVE_ROOM': {
+                    if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
+                    const lobby = lobbies[currentRoomCode];
+                    const leavingName = currentPlayer.name;
+                    const wasHost = currentPlayer.isHost;
+
+                    // Remove player completely from the lobby
+                    lobby.players = lobby.players.filter(p => p.id !== currentPlayer.id);
+
+                    const onlinePlayers = lobby.players.filter(p => p.isOnline);
+
+                    if (onlinePlayers.length === 0 && lobby.players.length === 0) {
+                        // Nobody left at all, delete lobby
+                        deleteLobby(currentRoomCode);
+                    } else {
+                        // Transfer host if needed
+                        if (wasHost && onlinePlayers.length > 0) {
+                            const newHost = onlinePlayers[0];
+                            newHost.isHost = true;
+                            console.log(`Host left deliberately in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
+                        }
+
+                        // Broadcast system message
+                        broadcastToLobby(currentRoomCode, {
+                            type: 'CHAT_MESSAGE',
+                            playerId: 'system',
+                            playerName: 'Hệ thống',
+                            playerColor: { value: '#ff3131' },
+                            message: `Người chơi ${leavingName} đã rời phòng. 👋`
+                        });
+
+                        // Broadcast updated player list
+                        broadcastToLobby(currentRoomCode, {
+                            type: 'PLAYER_LIST_UPDATE',
+                            players: getSanitizedPlayers(lobby)
+                        });
+                    }
+
+                    // Send confirmation to the leaving player
+                    sendToPlayer(ws, { type: 'LEAVE_CONFIRMED' });
+
+                    // Clean up connection-level references
+                    currentPlayer = null;
+                    currentRoomCode = null;
+                    break;
+                }
             }
         } catch (e) {
             console.error('Error handling WebSocket message:', e);
@@ -696,44 +1120,52 @@ wss.on('connection', (ws) => {
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
 
         const lobby = lobbies[currentRoomCode];
+        const disconnectedName = currentPlayer.name;
         
-        // Remove or set offline
+        // Mark player as offline but KEEP them in the lobby for reconnection
         currentPlayer.isOnline = false;
+        currentPlayer.ws = null;
         
-        // Find if any online players left
+        // Find remaining online players
         const onlinePlayers = lobby.players.filter(p => p.isOnline);
 
         if (onlinePlayers.length === 0) {
-            // Delete lobby immediately if completely empty
-            delete lobbies[currentRoomCode];
-            console.log(`Lobby ${currentRoomCode} has been deleted (empty).`);
+            // No one online - set a cleanup timer to delete lobby after 60 seconds
+            // This gives players a window to reconnect (e.g., page refresh)
+            console.log(`All players offline in Lobby ${currentRoomCode}. Starting 60s cleanup timer...`);
+            lobby.cleanupTimer = setTimeout(() => {
+                if (lobbies[currentRoomCode]) {
+                    const stillOnline = lobbies[currentRoomCode].players.filter(p => p.isOnline);
+                    if (stillOnline.length === 0) {
+                        deleteLobby(currentRoomCode);
+                    }
+                }
+            }, 60000);
         } else {
-            // If host left, pass Host privileges to next online player
+            // If host disconnected, pass Host privileges to next online player
             if (currentPlayer.isHost) {
                 currentPlayer.isHost = false;
                 const newHost = onlinePlayers[0];
                 newHost.isHost = true;
-                console.log(`Host left in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
+                console.log(`Host disconnected in Lobby ${currentRoomCode}. Assigned Host to ${newHost.name}`);
             }
 
-            // Remove completely from array to clean list, or keep for re-join?
-            // Clean from list is simpler for folk game
-            lobby.players = lobby.players.filter(p => p.id !== currentPlayer.id);
-
-            // Broadcast system message about player leaving
+            // Broadcast system message about player disconnecting (not "leaving")
             broadcastToLobby(currentRoomCode, {
                 type: 'CHAT_MESSAGE',
                 playerId: 'system',
                 playerName: 'Hệ thống',
-                playerColor: { value: '#ff3131' },
-                message: `Người chơi ${currentPlayer.name} đã rời phòng.`
+                playerColor: { value: '#ff8c00' },
+                message: `Người chơi ${disconnectedName} đã mất kết nối. ⚠️`
             });
 
-            // Re-broadcast updated player list
+            // Re-broadcast updated player list (player is still in list but isOnline=false)
+            // getSanitizedPlayers filters out offline players for the active view
             broadcastToLobby(currentRoomCode, {
                 type: 'PLAYER_LIST_UPDATE',
                 players: getSanitizedPlayers(lobby)
             });
+            checkAndStartAutoReveal(lobby, currentRoomCode);
         }
     });
 });

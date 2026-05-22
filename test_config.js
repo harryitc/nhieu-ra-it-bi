@@ -83,13 +83,13 @@ async function runTest() {
     send(p3, 'JOIN_ROOM', { playerName: 'Người chơi B', roomCode: roomCode });
     await sleep(500);
 
-    // 3. Host updates config (maxChanges = 1, gameMode = 'white-out')
-    console.log("\n--- CHỦ PHÒNG THAY ĐỔI CẤU HÌNH (maxChanges = 1, gameMode = white-out) ---");
-    send(host, 'UPDATE_ROOM_CONFIG', { gameMode: 'white-out', maxChanges: 1 });
+    // 3. Host updates config (maxChanges = 1, gameMode = 'minority-out')
+    console.log("\n--- CHỦ PHÒNG THAY ĐỔI CẤU HÌNH (maxChanges = 1, gameMode = minority-out) ---");
+    send(host, 'UPDATE_ROOM_CONFIG', { gameMode: 'minority-out', maxChanges: 1 });
     await sleep(500);
 
     // Verify config update was received by others
-    if (configUpdatedSuccess && configUpdatedMsg.maxChanges === 1 && configUpdatedMsg.gameMode === 'white-out') {
+    if (configUpdatedSuccess && configUpdatedMsg.maxChanges === 1 && configUpdatedMsg.gameMode === 'minority-out') {
         console.log("✅ OK: Cập nhật cấu hình phòng được truyền phát đồng bộ thành công!");
     } else {
         console.error("❌ LỖI: Cập nhật cấu hình phòng không hoạt động!");

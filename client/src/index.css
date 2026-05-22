@@ -1430,54 +1430,189 @@ body {
 
 /* Result breakdown summary list */
 .result-summary-list {
-    max-height: 140px;
+    max-height: 280px;
     overflow-y: auto;
     border-top: 1px solid rgba(255,255,255,0.06);
     padding-top: 12px;
     display: flex;
     flex-direction: column;
+    gap: 12px;
+}
+
+/* Group styling inside the result summary list */
+.result-group {
+    background: rgba(255, 255, 255, 0.01);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 16px;
+    padding: 14px;
+    text-align: left;
+}
+
+.result-group.danger {
+    background: rgba(255, 49, 49, 0.02);
+    border: 1px solid rgba(255, 49, 49, 0.15);
+    box-shadow: inset 0 0 15px rgba(255, 49, 49, 0.05);
+}
+
+.result-group.safe {
+    background: rgba(57, 255, 20, 0.01);
+    border: 1px solid rgba(57, 255, 20, 0.08);
+    box-shadow: inset 0 0 15px rgba(57, 255, 20, 0.02);
+}
+
+.result-group.spectators {
+    background: rgba(255, 255, 255, 0.005);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.result-group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.result-group.danger .result-group-title {
+    color: var(--neon-red);
+    border-bottom-color: rgba(255, 49, 49, 0.15);
+    text-shadow: 0 0 10px rgba(255, 49, 49, 0.2);
+}
+
+.result-group.safe .result-group-title {
+    color: var(--neon-green);
+    border-bottom-color: rgba(57, 255, 20, 0.08);
+    text-shadow: 0 0 10px rgba(57, 255, 20, 0.1);
+}
+
+.result-group.spectators .result-group-title {
+    color: #a4b0be;
+    border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Cards for Unsafe / Losers */
+.danger-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.danger-player-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    transition: all 0.2s ease;
+}
+
+.danger-player-card:hover {
+    transform: translateY(-1px);
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 49, 49, 0.3);
+}
+
+.danger-player-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.player-avatar-circle {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 800;
+    color: #000;
+}
+
+.danger-player-name {
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.danger-player-choice-badge {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Grid for Safe players (super clean and focused) */
+.safe-pills-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
     gap: 6px;
 }
 
-.result-summary-item {
+.safe-player-pill {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 6px 12px;
-    background: rgba(255,255,255,0.01);
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: rgba(57, 255, 20, 0.03);
+    border: 1px solid rgba(57, 255, 20, 0.08);
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 11px;
+    transition: all 0.15s ease;
 }
 
-.summary-item-name {
+.safe-player-pill:hover {
+    background: rgba(57, 255, 20, 0.06);
+    border-color: rgba(57, 255, 20, 0.2);
+}
+
+.safe-pill-name {
     font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 65px;
 }
 
-.summary-item-choice {
-    font-size: 10px;
+.safe-pill-choice {
+    font-size: 9px;
     color: var(--text-muted);
 }
 
-.summary-item-status {
-    font-weight: 700;
-    font-size: 10px;
-    text-transform: uppercase;
-}
-
-.summary-item-status.is-safe {
+.safe-pill-check {
     color: var(--neon-green);
+    font-size: 10px;
+    font-weight: 900;
+    margin-left: 2px;
 }
 
-.summary-item-status.is-loser {
-    color: var(--neon-red);
+/* Spectators container */
+.spectators-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
 }
 
-.summary-item-status.is-spectator {
-    color: #a4b0be;
-}
-
-.summary-item-status.is-playing {
-    color: var(--neon-blue);
+.spectator-pill {
+    padding: 4px 8px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    font-size: 10px;
+    color: var(--text-muted);
 }
 
 /* Tie Results styling */
