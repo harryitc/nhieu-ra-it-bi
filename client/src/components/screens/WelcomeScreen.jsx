@@ -7,23 +7,23 @@ import { HAND_SVGS } from '../../utils/handSvgs'
 
 const MODES = [
   {
+    id: 'oan-tu-ti',
+    icon: 'sports_kabaddi',
+    title: 'Oẳn Tù Tì',
+    desc: 'Kéo – Búa – Bao. Kéo thắng Bao, Búa thắng Kéo, Bao thắng Búa.',
+    badge: 'Chính'
+  },
+  {
     id: 'majority-out',
     icon: 'groups',
     title: 'Nhiều Ra, Ít Bị',
-    desc: 'Số đông an toàn, số ít bị chọn (thua).',
-    badge: 'Phổ biến'
+    desc: 'Số đông an toàn, số ít bị chọn (thua).'
   },
   {
-    id: 'white-out',
-    icon: 'back_hand',
-    title: 'Trắng Ra, Đen Bị',
-    desc: 'Ngửa tay (Trắng) an toàn, Úp tay (Đen) bị chọn.'
-  },
-  {
-    id: 'black-out',
-    icon: 'front_hand',
-    title: 'Đen Ra, Trắng Bị',
-    desc: 'Úp tay (Đen) an toàn, Ngửa tay (Trắng) bị chọn.'
+    id: 'minority-out',
+    icon: 'person_remove',
+    title: 'Ít Ra, Nhiều Bị',
+    desc: 'Số ít an toàn, số đông bị chọn (thua).'
   }
 ]
 
@@ -37,7 +37,7 @@ export default function WelcomeScreen() {
   const [hostName, setHostName] = useState(savedPlayerName || '')
   const [joinName, setJoinName] = useState(savedPlayerName || '')
   const [joinCode, setJoinCode] = useState('')
-  const [selectedMode, setSelectedMode] = useState('majority-out')
+  const [selectedMode, setSelectedMode] = useState('oan-tu-ti')
 
   // Handle direct-join URL param (?room=XXXX)
   const [directJoinCode, setDirectJoinCode] = useState(null)
@@ -90,9 +90,9 @@ export default function WelcomeScreen() {
     <section id="welcome-screen" className="screen active">
       <header className="app-header animate-fade-in">
         <div className="logo-container">
-          <span className="material-symbols-rounded logo-icon">back_hand</span>
+          <span className="material-symbols-rounded logo-icon">sports_kabaddi</span>
         </div>
-        <h1 className="app-title">NHIỀU RA ÍT BỊ</h1>
+        <h1 className="app-title">OẲN TÙ TÌ</h1>
         <p className="app-subtitle">Trò chơi dân gian trực tuyến thời gian thực</p>
       </header>
 

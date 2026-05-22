@@ -134,6 +134,21 @@ function handleServerMessage(msg) {
       break
     }
 
+    case 'SELECTION_TIMER': {
+      store.setSelectionTimeLeft(msg.timeLeft)
+      break
+    }
+
+    case 'AUTO_REVEAL_TIMER': {
+      store.setAutoRevealTimeLeft(msg.timeLeft)
+      break
+    }
+
+    case 'AUTO_REVEAL_CANCELLED': {
+      store.setAutoRevealTimeLeft(null)
+      break
+    }
+
     case 'GO_TO_LOBBY': {
       store.handleGoToLobby()
       break

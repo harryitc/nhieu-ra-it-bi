@@ -33,7 +33,9 @@ const useGameStore = create(
       // null until REVEAL_RESULTS arrives; cleared on round reset
       revealResults: null,
       showResultOverlay: false,
-
+      // ── TIMERS ─────────────────────────────────────────────────────────────
+      selectionTimeLeft: null,   // 30s countdown for picking a choice
+      autoRevealTimeLeft: null,  // 5s countdown before auto-reveal
       // ── CHAT ───────────────────────────────────────────────────────────
       chatMessages: [],
       chatExpanded: true,
@@ -125,7 +127,9 @@ const useGameStore = create(
           choiceChanges: 0,
           isCountingDown: false,
           revealResults: null,
-          showResultOverlay: false
+          showResultOverlay: false,
+          selectionTimeLeft: msg.selectionTimeLeft ?? null,
+          autoRevealTimeLeft: null
         })
       },
 
@@ -134,6 +138,9 @@ const useGameStore = create(
       },
 
       startCountdown: () => set({ isCountingDown: true }),
+
+      setSelectionTimeLeft: (v) => set({ selectionTimeLeft: v }),
+      setAutoRevealTimeLeft: (v) => set({ autoRevealTimeLeft: v }),
 
       handleRevealResults: (msg) => {
         // Record history
@@ -175,7 +182,9 @@ const useGameStore = create(
           choiceChanges: 0,
           isCountingDown: false,
           revealResults: null,
-          showResultOverlay: false
+          showResultOverlay: false,
+          selectionTimeLeft: null,
+          autoRevealTimeLeft: null
         })
       },
 
@@ -214,6 +223,8 @@ const useGameStore = create(
           isCountingDown: false,
           revealResults: null,
           showResultOverlay: false,
+          selectionTimeLeft: null,
+          autoRevealTimeLeft: null,
           roundNumber: 1,
           roundType: 'nhieu-ra-it-bi',
           unreadMessages: 0,

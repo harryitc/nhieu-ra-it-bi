@@ -17,7 +17,7 @@ const COUNTDOWN_STEPS = [
 export default function PlayScreen() {
   const {
     players, myPlayer, roundNumber, roundType, isCountingDown,
-    revealResults, myChoice, currentMode
+    revealResults, myChoice, currentMode, selectionTimeLeft, autoRevealTimeLeft
   } = useGameStore(useShallow((s) => ({
     players: s.players,
     myPlayer: s.myPlayer,
@@ -26,7 +26,9 @@ export default function PlayScreen() {
     isCountingDown: s.isCountingDown,
     revealResults: s.revealResults,
     myChoice: s.myChoice,
-    currentMode: s.currentMode
+    currentMode: s.currentMode,
+    selectionTimeLeft: s.selectionTimeLeft,
+    autoRevealTimeLeft: s.autoRevealTimeLeft
   })))
   const setShowResultOverlay = useGameStore((s) => s.setShowResultOverlay)
 
@@ -159,7 +161,7 @@ export default function PlayScreen() {
       <header className="game-header">
         <div className="game-info-left">
           <h2 className="round-title">
-            {roundType === 'oan-tu-ti' ? '⚔ Oan Tù Tì' : `Vòng ${roundNumber}`}
+            {roundType === 'oan-tu-ti' ? 'Oẳn Tù Tì' : `Vòng ${roundNumber}`}
           </h2>
           {myPlayer?.isSpectator && (
             <span className="spectator-badge">
@@ -182,6 +184,26 @@ export default function PlayScreen() {
         {countdownText && (
           <div className="countdown-display" id="countdown-display">
             {countdownText}
+          </div>
+        )}
+
+        {/* Selection timer — only visible in last 10s */}
+        {!isCountingDown && !revealResults && selectionTimeLeft !== null && selectionTimeLeft <= 10 && selectionTimeLeft > 0 && (
+          <div className="selection-timer-urgent">
+            <span className="material-symbols-rounded">timer</span>
+            <span>Tự động chọn sau <strong>{selectionTimeLeft}s</strong>!</span>
+          </div>
+        )}
+
+        {/* Auto-reveal countdown bar */}
+        {!isCountingDown && !revealResults && autoRevealTimeLeft !== null && (
+          <div className="auto-reveal-bar">
+            <span className="material-symbols-rounded">visibility</span>
+            <span>Tự động lật tay sau <strong>{autoRevealTimeLeft}s</strong>...</span>
+            <div
+              className="auto-reveal-progress"
+              style={{ width: `${(autoRevealTimeLeft / 5) * 100}%` }}
+            />
           </div>
         )}
 
