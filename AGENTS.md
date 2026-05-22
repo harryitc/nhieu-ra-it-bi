@@ -1,6 +1,6 @@
-# AI Agent Workspace Instructions - Nhieu Ra It Bi Online
+# AI Agent Workspace Instructions - TTIT Xóm Nhà Lá
 
-Welcome! This workspace contains a real-time multiplayer folk game ("Nhiều Ra Ít Bị") utilizing WebSockets (`ws`), React 19, Vite, and Zustand.
+Welcome! This workspace contains a real-time multiplayer gaming platform ("TTIT Xóm Nhà Lá") utilizing WebSockets (`ws`), React 19, Vite, and Zustand.
 
 This guide helps AI agents get up to speed with development, architecture, testing, and common project conventions.
 

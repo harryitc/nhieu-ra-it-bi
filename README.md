@@ -1,6 +1,6 @@
-# 🎮 Nhiều Ra Ít Bị & Game Hub Online
+# 🎮 TTIT Xóm Nhà Lá - Nền Tảng Trò Chơi Giải Trí
 
-Chào mừng bạn đến với **Nhiều Ra Ít Bị Online**! Đây là một nền tảng Web Game Hub nhiều người chơi thời gian thực, kết hợp giữa trò chơi dân gian Việt Nam **"Nhiều Ra Ít Bị"**, **"Oẳn Tù Tì"** truyền thống và trò chơi **"Sinh Tồn 2D"** đầy kịch tính (phong cách Agar.io). 
+Chào mừng bạn đến với **TTIT Xóm Nhà Lá**! Đây là một nền tảng Web Game Hub nhiều người chơi thời gian thực, kết hợp giữa trò chơi dân gian Việt Nam **"Nhiều Ra Ít Bị"**, **"Oẳn Tù Tì"** truyền thống và trò chơi **"Sinh Tồn 2D"** đầy kịch tính (phong cách Agar.io). 
 
 Dự án được xây dựng trên nền tảng công nghệ hiện đại bậc nhất: **React 19**, **Zustand**, **Express**, **Vite** và kết nối **WebSockets (`ws`)** độ trễ cực thấp.
 
@@ -90,7 +90,7 @@ npm start
 │   │   │   ├── ui/             # Thành phần Toast, Modal dùng chung
 │   │   │   └── ...             # Chat, EmojiBar, HistoryPanel, v.v.
 │   │   ├── games/              # Mã nguồn các trò chơi cụ thể
-│   │   │   ├── OanTuTi.jsx     # Logic sảnh chính Nhiều Ra Ít Bị
+│   │   │   ├── OanTuTi.jsx     # Logic sảnh chính
 │   │   │   └── Survival.jsx    # Giao diện & Canvas vẽ game Sinh tồn
 │   │   ├── hooks/
 │   │   │   └── useWebSocket.js # Kết nối & chuyển tiếp sự kiện socket
