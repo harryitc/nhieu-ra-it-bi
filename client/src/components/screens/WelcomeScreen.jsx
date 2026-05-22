@@ -46,7 +46,7 @@ export default function WelcomeScreen() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
-    const room = params.get('room')
+    const room = params.get('room') || params.get('invite_friends')
     if (room) {
       setDirectJoinCode(room.toUpperCase())
       setJoinCode(room.toUpperCase())

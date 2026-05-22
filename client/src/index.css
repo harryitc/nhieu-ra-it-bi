@@ -59,7 +59,7 @@ body {
     filter: blur(140px);
     z-index: 0;
     pointer-events: none;
-    opacity: 0.35;
+    opacity: 0.75;
 }
 
 .bg-glow-1 {
@@ -122,6 +122,7 @@ body {
     max-width: 950px;
     flex-direction: column;
     align-items: center;
+    gap: 70px;
 }
 
 .screen.active {
@@ -917,7 +918,7 @@ body {
    ========================================================================== */
 .selection-timer-urgent {
     position: absolute;
-    top: 16px;
+    top: -45px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -952,7 +953,7 @@ body {
 
 .auto-reveal-bar {
     position: absolute;
-    bottom: 20px;
+    bottom: -45px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
@@ -2240,7 +2241,77 @@ body {
 }
 
 .chat-header {
-    display: none !important; /* Completely hide header */
+    display: none !important; /* Completely hide header by default */
+}
+
+/* Expanded/Collapsed state controls for chat */
+.chat-wrapper.collapsed .chat-panel {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateY(20px) scale(0.95) !important;
+    visibility: hidden;
+}
+
+.chat-wrapper.collapsed .chat-toggle-btn {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: scale(1) !important;
+    visibility: visible !important;
+}
+
+.chat-wrapper.expanded .chat-toggle-btn {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: scale(0.8) !important;
+    visibility: hidden !important;
+}
+
+.chat-wrapper.expanded .chat-panel {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translateY(0) scale(1) !important;
+    visibility: visible !important;
+    background: rgba(20, 21, 31, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 1px rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(15px) !important;
+    -webkit-backdrop-filter: blur(15px) !important;
+    border-radius: 16px !important;
+}
+
+.chat-wrapper.expanded .chat-header {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.chat-wrapper.expanded .chat-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    flex-grow: 1;
+}
+
+.chat-close-icon-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+}
+
+.chat-close-icon-btn:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .chat-messages {
@@ -2911,6 +2982,82 @@ body {
     box-shadow: none;
     pointer-events: none;
     transition: var(--transition-smooth);
+}
+
+.history-header {
+    display: none !important; /* Hide header by default */
+}
+
+/* Expanded/Collapsed state controls for history */
+.history-wrapper.collapsed .history-panel {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: translateY(20px) scale(0.95) !important;
+    visibility: hidden;
+}
+
+.history-wrapper.collapsed .history-toggle-btn {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: scale(1) !important;
+    visibility: visible !important;
+}
+
+.history-wrapper.expanded .history-toggle-btn {
+    opacity: 0 !important;
+    pointer-events: none !important;
+    transform: scale(0.8) !important;
+    visibility: hidden !important;
+}
+
+.history-wrapper.expanded .history-panel {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    transform: translateY(0) scale(1) !important;
+    visibility: visible !important;
+    background: rgba(20, 21, 31, 0.85) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), inset 0 0 1px rgba(255, 255, 255, 0.2) !important;
+    backdrop-filter: blur(15px) !important;
+    -webkit-backdrop-filter: blur(15px) !important;
+    border-radius: 16px !important;
+}
+
+.history-wrapper.expanded .history-header {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.history-wrapper.expanded .history-header h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: white;
+    flex-grow: 1;
+}
+
+.history-expand-icon-btn,
+.history-close-icon-btn {
+    background: transparent;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: var(--transition-smooth);
+}
+
+.history-expand-icon-btn:hover,
+.history-close-icon-btn:hover {
+    color: white;
+    background: rgba(255, 255, 255, 0.1);
 }
 
 .history-messages {

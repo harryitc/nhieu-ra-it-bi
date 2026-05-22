@@ -5,11 +5,13 @@ import useGameStore from '../store/gameStore'
 import { escapeHtml } from '../utils/helpers'
 
 export default function HistoryPanel() {
-  const { matchHistory, playerStats, roomCode } = useGameStore(useShallow((s) => ({
+  const { matchHistory, playerStats, roomCode, historyExpanded } = useGameStore(useShallow((s) => ({
     matchHistory: s.matchHistory,
     playerStats: s.playerStats,
-    roomCode: s.roomCode
+    roomCode: s.roomCode,
+    historyExpanded: s.historyExpanded
   })))
+  const setHistoryExpanded = useGameStore((s) => s.setHistoryExpanded)
   const [showModal, setShowModal] = useState(false)
 
   if (!roomCode) return null
@@ -27,17 +29,43 @@ export default function HistoryPanel() {
 
   return (
     <>
-      <div id="app-history-wrapper" className="history-wrapper">
+      <div id="app-history-wrapper" className={`history-wrapper ${historyExpanded ? 'expanded' : 'collapsed'}`}>
         <button
           id="history-toggle-btn"
           className="history-toggle-btn"
           title="Xem lịch sử trận đấu"
-          onClick={openModal}
+          onClick={() => {
+            sounds.playClick()
+            setHistoryExpanded(true)
+          }}
         >
           <span className="material-symbols-rounded">history</span>
         </button>
 
-        <div className="history-panel">
+        <div className="history-panel glass-card">
+          <div className="history-header">
+            <span className="material-symbols-rounded">history</span>
+            <h3>Lịch Sử Vòng</h3>
+            <button
+              className="history-expand-icon-btn"
+              title="Xem Chi Tiết Bảng Điểm"
+              onClick={openModal}
+              style={{ marginRight: 4 }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 20 }}>analytics</span>
+            </button>
+            <button
+              className="history-close-icon-btn"
+              title="Đóng"
+              onClick={() => {
+                sounds.playClick()
+                setHistoryExpanded(false)
+              }}
+            >
+              <span className="material-symbols-rounded" style={{ fontSize: 20 }}>close</span>
+            </button>
+          </div>
+
           <div className="history-messages" id="history-messages-container">
             {recentRounds.length === 0 ? (
               <div className="history-system-message">Chưa có lịch sử vòng đấu.</div>
