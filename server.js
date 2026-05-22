@@ -229,6 +229,8 @@ function computeLobbyResults(lobby) {
 }
 
 // WebSocket Connection Handler
+wss.on('error', (err) => console.error('[WSS] Server error:', err.message));
+
 wss.on('connection', (ws) => {
     let currentPlayer = null;
     let currentRoomCode = null;
@@ -683,6 +685,10 @@ wss.on('connection', (ws) => {
         } catch (e) {
             console.error('Error handling WebSocket message:', e);
         }
+    });
+
+    ws.on('error', (err) => {
+        console.error('[WS] Client error:', err.message);
     });
 
     // Handle Connection Disconnect
