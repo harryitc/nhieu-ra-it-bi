@@ -258,7 +258,7 @@ export default function PlayScreen() {
               onClick={handleReveal}
             >
               <span className="material-symbols-rounded">visibility</span>
-              {canReveal ? 'LẬT TAY!' : 'Đang đợi mọi người chọn...'}
+              LẬT TAY!
             </button>
           </div>
         )}
