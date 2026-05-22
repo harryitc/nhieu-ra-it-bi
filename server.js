@@ -96,11 +96,10 @@ function getSurvWorld(mode) {
     return survWorlds[mode];
 }
 
-function getGunAngles(level) {
-    if (level === 1) return [0];
-    if (level === 2) return [0, Math.PI];
-    if (level === 3) return [0, Math.PI * 2/3, Math.PI * 4/3];
-    return [0, Math.PI/2, Math.PI, Math.PI * 3/2];
+function getGunAngles(level, aimAngle = 0) {
+    const spreads = [null, [0], [-0.2, 0.2], [-0.28, 0, 0.28], [-0.4, -0.13, 0.13, 0.4]];
+    const sp = spreads[Math.min(level, 4)] || [0];
+    return sp.map(s => aimAngle + s);
 }
 
 function survSpawnWeaponBoxes(world) {
@@ -141,7 +140,7 @@ function survResetRound(world) {
         p.x = survRandPos(); p.y = survRandPos();
         p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
         p.dx = 0; p.dy = 0; p.alive = true;
-        p.weaponLevel = 0; p.mana = SURV.MANA_MAX; p.shootTimer = 0;
+        p.weaponLevel = 0; p.mana = SURV.MANA_MAX; p.shootTimer = 0; p.aimAngle = 0; p.shooting = false;
         delete p.respawnAt;
     }
     console.log(`[SURVIVAL:${world.mode}] Round ${world.roundNum} started`);
@@ -234,24 +233,23 @@ function survTick(world) {
         }
     }
 
-    // ── Battle: guns fire bullets ─────────────────────────────────────────
+    // ── Battle: guns fire bullets (left-click triggered) ─────────────────
     if (world.mode === 'battle' && world.bullets) {
         for (const p of world.players.values()) {
-            if (!p.alive || p.weaponLevel === 0) continue;
-            if (world.tick - p.shootTimer >= SURV.GUN_FIRE_TICKS) {
-                p.shootTimer = world.tick;
-                const angles = getGunAngles(p.weaponLevel);
-                for (const angle of angles) {
-                    const bid = 'b' + world.nextBulletId++;
-                    world.bullets.set(bid, {
-                        id: bid, shooterId: p.id, shooterName: p.name, color: p.color,
-                        x: p.x + Math.cos(angle) * p.r,
-                        y: p.y + Math.sin(angle) * p.r,
-                        vx: Math.cos(angle) * SURV.BULLET_SPEED,
-                        vy: Math.sin(angle) * SURV.BULLET_SPEED,
-                        life: SURV.BULLET_LIFETIME,
-                    });
-                }
+            if (!p.alive || p.weaponLevel === 0 || !p.shooting) continue;
+            if (world.tick - p.shootTimer < SURV.GUN_FIRE_TICKS) continue;
+            p.shootTimer = world.tick;
+            const angles = getGunAngles(p.weaponLevel, p.aimAngle);
+            for (const angle of angles) {
+                const bid = 'b' + world.nextBulletId++;
+                world.bullets.set(bid, {
+                    id: bid, shooterId: p.id, shooterName: p.name, color: p.color,
+                    x: p.x + Math.cos(angle) * p.r,
+                    y: p.y + Math.sin(angle) * p.r,
+                    vx: Math.cos(angle) * SURV.BULLET_SPEED,
+                    vy: Math.sin(angle) * SURV.BULLET_SPEED,
+                    life: SURV.BULLET_LIFETIME,
+                });
             }
         }
     }
@@ -350,6 +348,7 @@ function survTick(world) {
             color: p.color, alive: p.alive,
             weaponLevel: p.weaponLevel || 0,
             mana: world.mode === 'battle' ? Math.round(p.mana) : undefined,
+            aimAngle: p.aimAngle || 0,
         })),
         food:        [...world.food.values()],
         leaderboard,
@@ -2047,7 +2046,7 @@ wss.on('connection', (ws) => {
                         x: survRandPos(), y: survRandPos(),
                         mass: SURV.START_MASS, r: survRadius(SURV.START_MASS),
                         dx: 0, dy: 0, color: sColor, alive: true, ws,
-                        weaponLevel: 0, mana: SURV.MANA_MAX, sprint: false, shootTimer: 0,
+                        weaponLevel: 0, mana: SURV.MANA_MAX, sprint: false, shootTimer: 0, aimAngle: 0, shooting: false,
                     });
                     currentSurvivalId   = sId;
                     currentSurvivalMode = sMode;
@@ -2063,6 +2062,8 @@ wss.on('connection', (ws) => {
                         sp.dx = Math.max(-1, Math.min(1, Number(data.dx) || 0));
                         sp.dy = Math.max(-1, Math.min(1, Number(data.dy) || 0));
                         if (typeof data.sprint === 'boolean') sp.sprint = data.sprint;
+                        if (typeof data.shooting === 'boolean') sp.shooting = data.shooting;
+                        if (typeof data.aimAngle === 'number' && isFinite(data.aimAngle)) sp.aimAngle = data.aimAngle;
                     }
                     break;
                 }

@@ -160,13 +160,24 @@ export default function Survival() {
   const roundNumRef   = useRef(1)
   const screenRef     = useRef('lobby')
   const sprintRef     = useRef(false)
+  const shootingRef   = useRef(false)
+  const aimAngleRef   = useRef(0)
+  const wasdRef       = useRef({ w: false, a: false, s: false, d: false })
 
   useEffect(() => { screenRef.current = screen }, [screen])
 
   useEffect(() => {
     const onKey = e => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight')
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        if (screenRef.current === 'playing') e.preventDefault()
         sprintRef.current = e.type === 'keydown'
+      }
+      if (screenRef.current !== 'playing') return
+      const down = e.type === 'keydown'
+      if (e.code === 'KeyW' || e.code === 'ArrowUp')    { e.preventDefault(); wasdRef.current.w = down }
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft')  { e.preventDefault(); wasdRef.current.a = down }
+      if (e.code === 'KeyS' || e.code === 'ArrowDown')  { e.preventDefault(); wasdRef.current.s = down }
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') { e.preventDefault(); wasdRef.current.d = down }
     }
     window.addEventListener('keydown', onKey)
     window.addEventListener('keyup', onKey)
@@ -207,16 +218,51 @@ export default function Survival() {
 
   useEffect(() => {
     if (screen !== 'playing') { clearInterval(inputTimerRef.current); return }
+    const onMouseDown = e => { if (e.button === 0) shootingRef.current = true }
+    const onMouseUp = e => { if (e.button === 0) shootingRef.current = false }
+    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mouseup', onMouseUp)
     inputTimerRef.current = setInterval(() => {
       const ws = wsRef.current; if (!ws || ws.readyState !== 1) return
       const canvas = canvasRef.current; if (!canvas) return
-      const dx = mouseRef.current.x - canvas.width / 2
-      const dy = mouseRef.current.y - canvas.height / 2
-      const len = Math.sqrt(dx * dx + dy * dy)
-      if (len < 8) return
-      ws.send(JSON.stringify({ type: 'SURVIVAL_INPUT', dx: dx / len, dy: dy / len, sprint: sprintRef.current }))
+
+      // Aim angle always follows mouse
+      const mdx = mouseRef.current.x - canvas.width / 2
+      const mdy = mouseRef.current.y - canvas.height / 2
+      const aimAngle = Math.atan2(mdy, mdx)
+      aimAngleRef.current = aimAngle
+
+      // Movement: WASD if any key held, otherwise follow mouse
+      const wasd = wasdRef.current
+      const hasWASD = wasd.w || wasd.a || wasd.s || wasd.d
+      let movDx = 0, movDy = 0
+      if (hasWASD) {
+        if (wasd.a) movDx -= 1
+        if (wasd.d) movDx += 1
+        if (wasd.w) movDy -= 1
+        if (wasd.s) movDy += 1
+        const ml = Math.sqrt(movDx * movDx + movDy * movDy)
+        if (ml > 0) { movDx /= ml; movDy /= ml }
+      } else {
+        const mlen = Math.sqrt(mdx * mdx + mdy * mdy)
+        if (mlen > 8) { movDx = mdx / mlen; movDy = mdy / mlen }
+      }
+
+      ws.send(JSON.stringify({
+        type: 'SURVIVAL_INPUT',
+        dx: movDx, dy: movDy,
+        sprint: sprintRef.current,
+        shooting: shootingRef.current,
+        aimAngle,
+      }))
     }, 40)
-    return () => clearInterval(inputTimerRef.current)
+    return () => {
+      clearInterval(inputTimerRef.current)
+      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mouseup', onMouseUp)
+      shootingRef.current = false
+      wasdRef.current = { w: false, a: false, s: false, d: false }
+    }
   }, [screen])
 
   useEffect(() => {
@@ -312,19 +358,20 @@ export default function Survival() {
       ctx.shadowBlur = 0
 
       // Players (small-first, guns drawn behind cell)
-      const GUN_ANGLE_MAP = [[],[0],[0,Math.PI],[0,Math.PI*2/3,Math.PI*4/3],[0,Math.PI/2,Math.PI,Math.PI*3/2]]
+      const GUN_SPREADS = [null, [0], [-0.2, 0.2], [-0.28, 0, 0.28], [-0.4, -0.13, 0.13, 0.4]]
       const sorted = [...players].sort((a, b) => a.r - b.r)
       for (const p of sorted) {
         if (!p.alive) continue
         const isMe = p.id === myIdRef.current
 
-        // Gun barrels (drawn behind circle so circle masks the base)
+        // Gun barrels pointing toward aim direction
         const wl = p.weaponLevel || 0
         if (wl > 0) {
-          const gAngles = GUN_ANGLE_MAP[Math.min(wl, 4)] || []
+          const baseAngle = isMe ? aimAngleRef.current : (p.aimAngle || 0)
+          const spreads = GUN_SPREADS[Math.min(wl, 4)] || [0]
           const bW = Math.max(6, p.r * 0.3)
-          for (const angle of gAngles) {
-            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(angle)
+          for (const spread of spreads) {
+            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(baseAngle + spread)
             ctx.fillStyle = '#636e72'
             ctx.fillRect(p.r * 0.35, -bW / 2, p.r * 1.15, bW)
             ctx.fillStyle = '#b2bec3'
@@ -425,6 +472,13 @@ export default function Survival() {
           ctx.beginPath(); ctx.arc(MX + p.x * mscale, MY + p.y * mscale, isMe2 ? 4 : 2.5, 0, Math.PI*2)
           ctx.fillStyle = p.color; ctx.fill()
           if (isMe2) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke() }
+        }
+        // Weapon box markers on mini-map
+        if (weaponBoxes) {
+          ctx.fillStyle = '#fdcb6e'
+          for (const wb of weaponBoxes) {
+            ctx.fillRect(MX + wb.x * mscale - 3, MY + wb.y * mscale - 3, 6, 6)
+          }
         }
         ctx.textAlign = 'left'
       }
