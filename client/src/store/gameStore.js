@@ -158,6 +158,17 @@ const useGameStore = create(
           safeSetLS(`matchHistory_${roomCode}`, updatedHistory)
           safeSetLS(`playerStats_${roomCode}`, updatedStats)
         }
+
+        // Build choices map and loserIds list from results array
+        const choices = {}
+        const loserIds = []
+        if (msg.results) {
+          msg.results.forEach((r) => {
+            if (r.choice) choices[r.id] = r.choice
+            if (r.status === 'loser') loserIds.push(r.id)
+          })
+        }
+
         set({
           matchHistory: updatedHistory,
           playerStats: updatedStats,
@@ -165,6 +176,8 @@ const useGameStore = create(
           revealResults: {
             isTie: msg.isTie,
             results: msg.results,
+            choices,
+            loserIds,
             ultimateLoserId: msg.ultimateLoserId,
             roundNumber: msg.roundNumber,
             roundType: msg.roundType

@@ -187,9 +187,46 @@ function startSelectionTimer(lobby, roomCode) {
                 });
             }
 
-            checkAndStartAutoReveal(lobby, roomCode);
+            triggerReveal(lobby, roomCode);
         }
     }, 1000);
+}
+
+// Helper: Trigger immediate reveal (countdown then show results after 4s)
+function triggerReveal(lobby, roomCode) {
+    if (!lobbies[roomCode]) return;
+
+    // Clear any running selection or reveal timers
+    if (lobby.selectionInterval) {
+        clearInterval(lobby.selectionInterval);
+        lobby.selectionInterval = null;
+        lobby.selectionTimeLeft = null;
+    }
+    if (lobby.revealInterval) {
+        clearInterval(lobby.revealInterval);
+        lobby.revealInterval = null;
+        lobby.revealTimeLeft = null;
+    }
+
+    // 1. Send start countdown triggers to everyone
+    broadcastToLobby(roomCode, { type: 'REVEAL_COUNTDOWN' });
+
+    // 2. Pre-calculate outcomes
+    const currentRoundType = lobby.roundType || 'nhieu-ra-it-bi';
+    const outcome = computeLobbyResults(lobby);
+    lobby.gameState = 'revealed';
+
+    lobby.revealTimeout = setTimeout(() => {
+        if (!lobbies[roomCode]) return;
+        broadcastToLobby(roomCode, {
+            type: 'REVEAL_RESULTS',
+            isTie: outcome.isTie,
+            results: outcome.results,
+            ultimateLoserId: lobby.ultimateLoserId,
+            roundNumber: lobby.roundNumber,
+            roundType: currentRoundType
+        });
+    }, 4000);
 }
 
 // Helper: Check if all players have chosen, if so start 5s auto-reveal
@@ -231,30 +268,8 @@ function checkAndStartAutoReveal(lobby, roomCode) {
             });
 
             if (lobby.revealTimeLeft <= 0) {
-                clearInterval(lobby.revealInterval);
-                lobby.revealInterval = null;
-
                 console.log(`Auto-revealing room ${roomCode} due to 5s inactivity.`);
-
-                // 1. Send start countdown triggers to everyone
-                broadcastToLobby(roomCode, { type: 'REVEAL_COUNTDOWN' });
-
-                // 2. Pre-calculate outcomes
-                const currentRoundType = lobby.roundType || 'nhieu-ra-it-bi';
-                const outcome = computeLobbyResults(lobby);
-                lobby.gameState = 'revealed';
-
-                lobby.revealTimeout = setTimeout(() => {
-                    if (!lobbies[roomCode]) return;
-                    broadcastToLobby(roomCode, {
-                        type: 'REVEAL_RESULTS',
-                        isTie: outcome.isTie,
-                        results: outcome.results,
-                        ultimateLoserId: lobby.ultimateLoserId,
-                        roundNumber: lobby.roundNumber,
-                        roundType: currentRoundType
-                    });
-                }, 4000);
+                triggerReveal(lobby, roomCode);
             }
         }, 1000);
     } else {

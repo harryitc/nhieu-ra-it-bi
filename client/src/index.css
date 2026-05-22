@@ -712,18 +712,86 @@ body {
     background: rgba(255, 255, 255, 0.02);
     backdrop-filter: blur(10px);
     border: 1px solid var(--card-border);
-    padding: 15px 25px;
+    padding: 12px 20px;
+    border-radius: 16px;
+}
+
+.game-info-left, .game-info-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.game-mode-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 6px 14px;
     border-radius: 20px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.game-mode-indicator .material-symbols-rounded {
+    font-size: 16px;
+    color: var(--neon-blue);
+}
+
+.game-round-badge {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--text-muted);
 }
 
 .game-room-indicator {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    background: rgba(255,255,255,0.04);
-    padding: 6px 12px;
-    border-radius: 8px;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 6px 14px;
+    border-radius: 20px;
+}
+
+.room-code-tag {
+    color: #fff;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+}
+
+.btn-leave-game {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    cursor: pointer;
+    transition: var(--transition-smooth);
+}
+
+.btn-leave-game:hover {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: rgba(239, 68, 68, 0.4);
+    transform: scale(1.05);
+}
+
+.btn-leave-game .material-symbols-rounded {
+    font-size: 16px;
 }
 
 .spectator-badge {
