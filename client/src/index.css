@@ -4313,7 +4313,6 @@ body {
         width: 200px;
         height: 180px;
     }
-    }
 
     /* Emoji bar – shrink on very small screens */
     .emoji-reaction-bar {
@@ -4370,6 +4369,7 @@ body {
         padding: 7px 10px;
     }
 
+}
 /* ── Extra small (≤360px) ── */
 @media (max-width: 360px) {
     .app-title {
