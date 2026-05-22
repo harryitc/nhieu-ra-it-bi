@@ -445,6 +445,8 @@ function computeLobbyResults(lobby) {
 }
 
 // WebSocket Connection Handler
+wss.on('error', (err) => console.error('[WSS] Server error:', err.message));
+
 wss.on('connection', (ws) => {
     let currentPlayer = null;
     let currentRoomCode = null;
@@ -1109,7 +1111,11 @@ wss.on('connection', (ws) => {
         }
     });
 
-    // Handle Connection Disconnect (unintentional - browser close, F5, network loss)
+    ws.on('error', (err) => {
+        console.error('[WS] Client error:', err.message);
+    });
+
+    // Handle Connection Disconnect
     ws.on('close', () => {
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
 
