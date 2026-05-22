@@ -44,6 +44,7 @@ const useGameStore = create(
       // ── HISTORY (in-memory; also persisted to localStorage by roomCode) ─
       matchHistory: [],
       playerStats: {},
+      historyExpanded: true,
 
       // ── UI ─────────────────────────────────────────────────────────────
       toasts: [],
@@ -222,6 +223,10 @@ const useGameStore = create(
 
       setChatExpanded: (v) => {
         set({ chatExpanded: v, unreadMessages: v ? 0 : get().unreadMessages })
+      },
+
+      setHistoryExpanded: (v) => {
+        set({ historyExpanded: v })
       },
 
       // ── Leave room ───────────────────────────────────────────────────────

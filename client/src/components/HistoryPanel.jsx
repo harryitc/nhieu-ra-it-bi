@@ -5,11 +5,13 @@ import useGameStore from '../store/gameStore'
 import { escapeHtml } from '../utils/helpers'
 
 export default function HistoryPanel() {
-  const { matchHistory, playerStats, roomCode } = useGameStore(useShallow((s) => ({
+  const { matchHistory, playerStats, roomCode, historyExpanded } = useGameStore(useShallow((s) => ({
     matchHistory: s.matchHistory,
     playerStats: s.playerStats,
-    roomCode: s.roomCode
+    roomCode: s.roomCode,
+    historyExpanded: s.historyExpanded
   })))
+  const setHistoryExpanded = useGameStore((s) => s.setHistoryExpanded)
   const [showModal, setShowModal] = useState(false)
 
   if (!roomCode) return null
@@ -27,12 +29,15 @@ export default function HistoryPanel() {
 
   return (
     <>
-      <div id="app-history-wrapper" className="history-wrapper">
+      <div id="app-history-wrapper" className={`history-wrapper ${historyExpanded ? 'expanded' : 'collapsed'}`}>
         <button
           id="history-toggle-btn"
           className="history-toggle-btn"
           title="Xem lịch sử trận đấu"
-          onClick={openModal}
+          onClick={() => {
+            sounds.playClick()
+            setHistoryExpanded(true)
+          }}
         >
           <span className="material-symbols-rounded">history</span>
         </button>

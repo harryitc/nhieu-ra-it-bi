@@ -17,12 +17,30 @@ export default function OanTuTi() {
   useWebSocket()
 
   const currentScreen = useGameStore((s) => s.currentScreen)
+  const roomCode = useGameStore((s) => s.roomCode)
   const soundEnabled = useGameStore((s) => s.soundEnabled)
   const [soundReady, setSoundReady] = useState(false)
 
   useEffect(() => {
     sounds.enabled = soundEnabled
   }, [soundEnabled])
+
+  // Monitor roomCode and update browser query parameters to ?room=CODE
+  useEffect(() => {
+    if (roomCode) {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('room') !== roomCode) {
+        params.set('room', roomCode)
+        params.delete('invite_friends') // Replace invite link param with general room param
+        window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`)
+      }
+    } else {
+      const params = new URLSearchParams(window.location.search)
+      if (params.has('room') || params.has('invite_friends')) {
+        window.history.replaceState({}, '', window.location.pathname)
+      }
+    }
+  }, [roomCode])
 
   useEffect(() => {
     const handler = () => {

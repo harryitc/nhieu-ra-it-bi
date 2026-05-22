@@ -246,6 +246,10 @@ function deleteLobby(roomCode) {
             clearTimeout(lobby.revealTimeout);
             lobby.revealTimeout = null;
         }
+        if (lobby.autoPlayAgainTimeout) {
+            clearTimeout(lobby.autoPlayAgainTimeout);
+            lobby.autoPlayAgainTimeout = null;
+        }
         if (lobby.cleanupTimer) {
             clearTimeout(lobby.cleanupTimer);
             lobby.cleanupTimer = null;
@@ -268,6 +272,10 @@ function startSelectionTimer(lobby, roomCode) {
     if (lobby.revealTimeout) {
         clearTimeout(lobby.revealTimeout);
         lobby.revealTimeout = null;
+    }
+    if (lobby.autoPlayAgainTimeout) {
+        clearTimeout(lobby.autoPlayAgainTimeout);
+        lobby.autoPlayAgainTimeout = null;
     }
 
     lobby.selectionTimeLeft = 30;
@@ -325,6 +333,87 @@ function startSelectionTimer(lobby, roomCode) {
     }, 1000);
 }
 
+// Helper: Reset and move to next round or complete new tournament/match (trận mới)
+function executePlayAgain(lobby, roomCode) {
+    if (lobby.autoPlayAgainTimeout) {
+        clearTimeout(lobby.autoPlayAgainTimeout);
+        lobby.autoPlayAgainTimeout = null;
+    }
+
+    if (lobby.ultimateLoserId === null) {
+        // Tournament is still in progress -> NEXT ROUND!
+        lobby.gameState = 'playing';
+        lobby.roundNumber = (lobby.roundNumber || 1) + 1;
+
+        lobby.players.forEach(p => {
+            if (p.isSpectator) {
+                p.isSpectator = false; // Promote spectators to active players when the round transitions!
+            }
+            if (!p.isSafe) {
+                p.choice = null;
+                p.choiceChanges = 0;
+                p.status = 'none';
+            }
+        });
+
+        // Re-evaluate roundType for remaining active players
+        const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe).length;
+        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
+            lobby.roundType = 'oan-tu-ti';
+        } else {
+            lobby.roundType = 'nhieu-ra-it-bi';
+        }
+
+        // Broadcast the updated player list first to reset all hands to unchosen state
+        broadcastToLobby(roomCode, {
+            type: 'PLAYER_LIST_UPDATE',
+            players: getSanitizedPlayers(lobby)
+        });
+
+        broadcastToLobby(roomCode, { 
+            type: 'ROUND_RESET',
+            roundNumber: lobby.roundNumber,
+            roundType: lobby.roundType
+        });
+        startSelectionTimer(lobby, roomCode);
+    } else {
+        // Tournament is finished -> BẮT ĐẦU TRẬN MỚI!
+        lobby.gameState = 'playing';
+        lobby.roundNumber = 1;
+        lobby.ultimateLoserId = null;
+
+        lobby.players.forEach(p => {
+            p.choice = null;
+            p.choiceChanges = 0;
+            p.status = 'none';
+            p.isSpectator = false; // Promote all spectators to active players
+            p.isSafe = false;
+        });
+
+        const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator).length;
+        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
+            lobby.roundType = 'oan-tu-ti';
+        } else {
+            lobby.roundType = 'nhieu-ra-it-bi';
+        }
+
+        // Broadcast the updated player list first to reset all hands to unchosen state
+        broadcastToLobby(roomCode, {
+            type: 'PLAYER_LIST_UPDATE',
+            players: getSanitizedPlayers(lobby)
+        });
+
+        broadcastToLobby(roomCode, { 
+            type: 'GAME_STARTED',
+            gameMode: lobby.gameMode,
+            roundNumber: lobby.roundNumber,
+            roundType: lobby.roundType,
+            ultimateLoserId: lobby.ultimateLoserId
+        });
+        startSelectionTimer(lobby, roomCode);
+    }
+}
+
 // Helper: Trigger immediate reveal (countdown then show results after 4s)
 function triggerReveal(lobby, roomCode) {
     if (!lobbies[roomCode]) return;
@@ -359,6 +448,16 @@ function triggerReveal(lobby, roomCode) {
             roundNumber: lobby.roundNumber,
             roundType: currentRoundType
         });
+
+        // Auto play again 5s after publish results
+        if (lobby.autoPlayAgainTimeout) {
+            clearTimeout(lobby.autoPlayAgainTimeout);
+        }
+        lobby.autoPlayAgainTimeout = setTimeout(() => {
+            if (!lobbies[roomCode] || lobby.gameState !== 'revealed') return;
+            console.log(`Auto-play-again triggering for room ${roomCode}`);
+            executePlayAgain(lobby, roomCode);
+        }, 5000);
     }, 4000);
 }
 
@@ -1053,6 +1152,7 @@ wss.on('connection', (ws) => {
                     lobby.gameState = 'revealed';
 
                     setTimeout(() => {
+                        if (!lobbies[currentRoomCode]) return;
                         broadcastToLobby(currentRoomCode, {
                             type: 'REVEAL_RESULTS',
                             isTie: outcome.isTie,
@@ -1061,6 +1161,16 @@ wss.on('connection', (ws) => {
                             roundNumber: lobby.roundNumber,
                             roundType: currentRoundType
                         });
+
+                        // Auto play again 5s after publish results
+                        if (lobby.autoPlayAgainTimeout) {
+                            clearTimeout(lobby.autoPlayAgainTimeout);
+                        }
+                        lobby.autoPlayAgainTimeout = setTimeout(() => {
+                            if (!lobbies[currentRoomCode] || lobby.gameState !== 'revealed') return;
+                            console.log(`Auto-play-again triggering for room ${currentRoomCode}`);
+                            executePlayAgain(lobby, currentRoomCode);
+                        }, 5000);
                     }, 4000); // 4 seconds covers the countdown visual (3s) + lật delay (1s)
 
                     break;
@@ -1076,75 +1186,7 @@ wss.on('connection', (ws) => {
                         return;
                     }
 
-                    if (lobby.ultimateLoserId === null) {
-                        // Tournament is still in progress -> NEXT ROUND!
-                        lobby.gameState = 'playing';
-                        lobby.roundNumber = (lobby.roundNumber || 1) + 1;
-
-                        lobby.players.forEach(p => {
-                            if (!p.isSafe) {
-                                p.choice = null;
-                                p.choiceChanges = 0;
-                                p.status = 'none';
-                            }
-                        });
-
-                        // Re-evaluate roundType for remaining active players
-                        const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe).length;
-                        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
-                            lobby.roundType = 'oan-tu-ti';
-                        } else {
-                            lobby.roundType = 'nhieu-ra-it-bi';
-                        }
-
-                        // Broadcast the updated player list first to reset all hands to unchosen state
-                        broadcastToLobby(currentRoomCode, {
-                            type: 'PLAYER_LIST_UPDATE',
-                            players: getSanitizedPlayers(lobby)
-                        });
-
-                        broadcastToLobby(currentRoomCode, { 
-                            type: 'ROUND_RESET',
-                            roundNumber: lobby.roundNumber,
-                            roundType: lobby.roundType
-                        });
-                        startSelectionTimer(lobby, currentRoomCode);
-                    } else {
-                        // Tournament is finished -> BẮT ĐẦU TRẬN MỚI!
-                        lobby.gameState = 'playing';
-                        lobby.roundNumber = 1;
-                        lobby.ultimateLoserId = null;
-
-                        lobby.players.forEach(p => {
-                            p.choice = null;
-                            p.choiceChanges = 0;
-                            p.status = 'none';
-                            p.isSpectator = false; // Promote all spectators to active players
-                            p.isSafe = false;
-                        });
-
-                        const activePlayersCount = lobby.players.filter(p => p.isOnline && !p.isSpectator).length;
-                        if (lobby.gameMode === 'oan-tu-ti' || activePlayersCount === 2) {
-                            lobby.roundType = 'oan-tu-ti';
-                        } else {
-                            lobby.roundType = 'nhieu-ra-it-bi';
-                        }
-
-                        // Broadcast the updated player list first to reset all hands to unchosen state
-                        broadcastToLobby(currentRoomCode, {
-                            type: 'PLAYER_LIST_UPDATE',
-                            players: getSanitizedPlayers(lobby)
-                        });
-
-                        broadcastToLobby(currentRoomCode, { 
-                            type: 'GAME_STARTED',
-                            gameMode: lobby.gameMode,
-                            roundNumber: lobby.roundNumber,
-                            roundType: lobby.roundType,
-                            ultimateLoserId: lobby.ultimateLoserId
-                        });
-                        startSelectionTimer(lobby, currentRoomCode);
-                    }
+                    executePlayAgain(lobby, currentRoomCode);
                     break;
                 }
 
