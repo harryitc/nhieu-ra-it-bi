@@ -1250,6 +1250,7 @@ function checkAndStartAutoReveal(lobby, roomCode) {
 // Helper: Calculate results for a lobby
 function computeLobbyResults(lobby) {
     const activePlayers = lobby.players.filter(p => p.isOnline && !p.isSpectator && !p.isSafe);
+    const offlineActivePlayers = lobby.players.filter(p => !p.isOnline && !p.isSpectator && !p.isSafe);
     
     // Reset statuses of non-safe non-spectator players
     lobby.players.forEach(p => {
@@ -1259,6 +1260,52 @@ function computeLobbyResults(lobby) {
     });
 
     let isTie = false;
+
+    // 1. Handle active players who went offline during the game
+    if (offlineActivePlayers.length > 0) {
+        offlineActivePlayers.forEach(p => {
+            p.status = 'loser';
+            p.isSafe = false;
+        });
+        activePlayers.forEach(p => {
+            p.status = 'safe';
+            p.isSafe = true;
+        });
+        lobby.ultimateLoserId = offlineActivePlayers[0].id;
+        
+        return {
+            isTie: false,
+            results: lobby.players.map(p => ({
+                id: p.id,
+                name: p.name,
+                choice: p.choice,
+                status: p.status,
+                color: p.color,
+                isSpectator: p.isSpectator || false,
+                isSafe: p.isSafe || false
+            }))
+        };
+    }
+
+    // 2. Handle scenario where only 1 online active player remains
+    if (activePlayers.length === 1) {
+        const lonePlayer = activePlayers[0];
+        lonePlayer.status = 'loser';
+        lobby.ultimateLoserId = lonePlayer.id;
+
+        return {
+            isTie: false,
+            results: lobby.players.map(p => ({
+                id: p.id,
+                name: p.name,
+                choice: p.choice,
+                status: p.status,
+                color: p.color,
+                isSpectator: p.isSpectator || false,
+                isSafe: p.isSafe || false
+            }))
+        };
+    }
 
     // Handle Oẳn Tù Tì
     if (lobby.roundType === 'oan-tu-ti') {
