@@ -7,8 +7,8 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Serve static files from public directory
-app.use(express.static(path.join(__dirname, 'public')));
+// Serve static files from client build
+app.use(express.static(path.join(__dirname, 'client/dist')));
 
 // Port configuration (useful for deployment platforms like Render, Railway, Heroku)
 const PORT = process.env.PORT || 3000;
