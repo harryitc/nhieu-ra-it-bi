@@ -27,31 +27,37 @@ const lobbies = {};
 // ==========================================================================
 const SURV = {
     WORLD: 6000,
-    MAX_FOOD:             { classic: 350, battle: 280, race: 420, hunger: 500 },
-    FOOD_MASS:            1,
-    START_MASS:           15,
-    TICK_RATE:            30,
-    BASE_SPEED:           140,      // world-units/sec at start mass
+    MAX_FOOD:            { classic: 350, battle: 280 },
+    FOOD_MASS:           1,
+    START_MASS:          15,
+    MIN_MASS:            3,
+    TICK_RATE:           30,
+    BASE_SPEED:          140,
     // Battle Royale
-    BATTLE_ZONE_START:    25,       // seconds before zone shrinks
-    BATTLE_ZONE_SHRINK:   170,      // seconds to reach min radius
-    BATTLE_ZONE_INIT:     0.68,     // fraction of WORLD for initial radius
-    BATTLE_ZONE_MIN:      120,      // minimum zone radius
-    BATTLE_ZONE_DMG:      0.5,      // mass/sec outside zone
-    BATTLE_RESET_DELAY:   6,        // seconds between rounds
-    // Race
-    RACE_TARGET:          500,
-    RACE_RESET_DELAY:     6,
-    RACE_RESPAWN_DELAY:   2,        // seconds before auto-respawn after dying
-    // Hunger
-    HUNGER_DECAY:         0.007,    // base fraction of mass lost per second
-    HUNGER_MIN_MASS:      12,       // below this → die
+    BATTLE_ZONE_START:   25,
+    BATTLE_ZONE_SHRINK:  170,
+    BATTLE_ZONE_INIT:    0.68,
+    BATTLE_ZONE_MIN:     120,
+    BATTLE_ZONE_DMG:     1,         // 1 mass/sec outside zone
+    BATTLE_RESET_DELAY:  6,
+    // Weapons (battle)
+    MAX_WEAPON_BOXES:    8,
+    BULLET_SPEED:        500,
+    BULLET_LIFETIME:     45,        // ticks
+    BULLET_DAMAGE:       5,
+    GUN_FIRE_TICKS:      25,
+    MAX_WEAPON_LEVEL:    4,
+    // Mana / Sprint (battle)
+    MANA_MAX:            100,
+    MANA_REGEN:          12,        // per sec
+    MANA_DRAIN:          20,        // per sec when sprinting
+    SPRINT_MULT:         1.6,
     COLORS: ['#ff4757','#2ed573','#1e90ff','#ffa502','#ff6b81','#a29bfe',
              '#00cec9','#fd79a8','#e17055','#6c5ce7','#00b894','#fdcb6e',
              '#55efc4','#74b9ff','#dfe6e9','#fab1a0']
 };
 
-const SURV_VALID_MODES = new Set(['classic','battle','race','hunger']);
+const SURV_VALID_MODES = new Set(['classic','battle']);
 
 function survRadius(mass) { return Math.sqrt(mass) * 5; }
 function survSpeed(mass)  { return SURV.BASE_SPEED / Math.max(1, Math.pow(mass / SURV.START_MASS, 0.35)); }
@@ -60,14 +66,18 @@ function survRandPos()    { return 200 + Math.random() * (SURV.WORLD - 400); }
 function createSurvWorld(mode) {
     return {
         mode,
-        players:    new Map(),
-        food:       new Map(),
-        nextFoodId: 0,
-        tick:       0,
-        interval:   null,
-        roundNum:   1,
-        winner:     null,   // { name, color, mass } — set when round ends
-        resetAt:    0,      // tick number to trigger round reset (0 = none)
+        players:      new Map(),
+        food:         new Map(),
+        bullets:      mode === 'battle' ? new Map() : null,
+        weaponBoxes:  mode === 'battle' ? new Map() : null,
+        nextFoodId:   0,
+        nextBulletId: 0,
+        nextWBoxId:   0,
+        tick:         0,
+        interval:     null,
+        roundNum:     1,
+        winner:       null,
+        resetAt:      0,
         zone: mode === 'battle' ? {
             cx: SURV.WORLD / 2, cy: SURV.WORLD / 2,
             r:  SURV.WORLD * SURV.BATTLE_ZONE_INIT,
@@ -84,6 +94,25 @@ const survWorlds = {};
 function getSurvWorld(mode) {
     if (!survWorlds[mode]) survWorlds[mode] = createSurvWorld(mode);
     return survWorlds[mode];
+}
+
+function getGunAngles(level) {
+    if (level === 1) return [0];
+    if (level === 2) return [0, Math.PI];
+    if (level === 3) return [0, Math.PI * 2/3, Math.PI * 4/3];
+    return [0, Math.PI/2, Math.PI, Math.PI * 3/2];
+}
+
+function survSpawnWeaponBoxes(world) {
+    if (!world.weaponBoxes) return;
+    while (world.weaponBoxes.size < SURV.MAX_WEAPON_BOXES) {
+        const id = 'wb' + world.nextWBoxId++;
+        world.weaponBoxes.set(id, {
+            id,
+            x: 400 + Math.random() * (SURV.WORLD - 800),
+            y: 400 + Math.random() * (SURV.WORLD - 800),
+        });
+    }
 }
 
 function survSpawnFood(world) {
@@ -107,10 +136,12 @@ function survResetRound(world) {
         world.zone.r         = SURV.WORLD * SURV.BATTLE_ZONE_INIT;
         world.zone.startTick = world.tick + SURV.BATTLE_ZONE_START * SURV.TICK_RATE;
     }
+    if (world.bullets) world.bullets.clear();
     for (const p of world.players.values()) {
         p.x = survRandPos(); p.y = survRandPos();
         p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
         p.dx = 0; p.dy = 0; p.alive = true;
+        p.weaponLevel = 0; p.mana = SURV.MANA_MAX; p.shootTimer = 0;
         delete p.respawnAt;
     }
     console.log(`[SURVIVAL:${world.mode}] Round ${world.roundNum} started`);
@@ -126,10 +157,6 @@ function survKillPlayer(world, p, killedBy) {
             mode: world.mode
         });
     }
-    // Race mode: schedule auto-respawn
-    if (world.mode === 'race') {
-        p.respawnAt = world.tick + SURV.RACE_RESPAWN_DELAY * SURV.TICK_RATE;
-    }
 }
 
 function survTick(world) {
@@ -141,14 +168,14 @@ function survTick(world) {
         survResetRound(world);
     }
 
-    // ── Race: auto-respawn dead players ──────────────────────────────────
-    if (world.mode === 'race') {
+    // ── Mana regen/drain (battle) ─────────────────────────────────────────
+    if (world.mode === 'battle') {
         for (const p of world.players.values()) {
-            if (!p.alive && p.respawnAt && world.tick >= p.respawnAt) {
-                p.x = survRandPos(); p.y = survRandPos();
-                p.mass = SURV.START_MASS; p.r = survRadius(SURV.START_MASS);
-                p.dx = 0; p.dy = 0; p.alive = true;
-                delete p.respawnAt;
+            if (!p.alive) continue;
+            if (p.sprint && p.mana > 0) {
+                p.mana = Math.max(0, p.mana - SURV.MANA_DRAIN * DT);
+            } else {
+                p.mana = Math.min(SURV.MANA_MAX, p.mana + SURV.MANA_REGEN * DT);
             }
         }
     }
@@ -156,25 +183,12 @@ function survTick(world) {
     // ── Move players ──────────────────────────────────────────────────────
     for (const p of world.players.values()) {
         if (!p.alive) continue;
-        const spd = survSpeed(p.mass);
+        const isSprinting = world.mode === 'battle' && p.sprint && p.mana > 0;
+        const spd = survSpeed(p.mass) * (isSprinting ? SURV.SPRINT_MULT : 1);
         const len = Math.sqrt(p.dx * p.dx + p.dy * p.dy);
         if (len > 0.01) {
             p.x = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.x + (p.dx / len) * spd * DT));
             p.y = Math.max(p.r, Math.min(SURV.WORLD - p.r, p.y + (p.dy / len) * spd * DT));
-        }
-    }
-
-    // ── Hunger: mass decay ────────────────────────────────────────────────
-    if (world.mode === 'hunger') {
-        for (const p of world.players.values()) {
-            if (!p.alive) continue;
-            // Larger cells decay proportionally faster (bigger is harder to maintain)
-            const rate = SURV.HUNGER_DECAY * Math.pow(p.mass / SURV.START_MASS, 0.4);
-            p.mass -= p.mass * rate * DT;
-            p.r = survRadius(p.mass);
-            if (p.mass < SURV.HUNGER_MIN_MASS) {
-                survKillPlayer(world, p, 'đói');
-            }
         }
     }
 
@@ -190,8 +204,77 @@ function survTick(world) {
             if (dx * dx + dy * dy > z.r * z.r) {
                 p.mass -= SURV.BATTLE_ZONE_DMG * DT;
                 p.r = survRadius(Math.max(1, p.mass));
-                if (p.mass < 2) survKillPlayer(world, p, 'vùng nguy hiểm');
+                if (p.mass < SURV.MIN_MASS) survKillPlayer(world, p, 'vùng nguy hiểm');
             }
+        }
+    }
+
+    // ── Battle: weapon box pickup ─────────────────────────────────────────
+    if (world.mode === 'battle' && world.weaponBoxes) {
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            for (const [wbId, wb] of world.weaponBoxes) {
+                const ddx = p.x - wb.x, ddy = p.y - wb.y;
+                if (ddx * ddx + ddy * ddy < (p.r + 22) * (p.r + 22)) {
+                    if (p.weaponLevel < SURV.MAX_WEAPON_LEVEL) p.weaponLevel++;
+                    world.weaponBoxes.delete(wbId);
+                    setTimeout(() => {
+                        if (world.weaponBoxes && world.interval) {
+                            const rid = 'wb' + world.nextWBoxId++;
+                            world.weaponBoxes.set(rid, {
+                                id: rid,
+                                x: 400 + Math.random() * (SURV.WORLD - 800),
+                                y: 400 + Math.random() * (SURV.WORLD - 800),
+                            });
+                        }
+                    }, 12000);
+                    break;
+                }
+            }
+        }
+    }
+
+    // ── Battle: guns fire bullets ─────────────────────────────────────────
+    if (world.mode === 'battle' && world.bullets) {
+        for (const p of world.players.values()) {
+            if (!p.alive || p.weaponLevel === 0) continue;
+            if (world.tick - p.shootTimer >= SURV.GUN_FIRE_TICKS) {
+                p.shootTimer = world.tick;
+                const angles = getGunAngles(p.weaponLevel);
+                for (const angle of angles) {
+                    const bid = 'b' + world.nextBulletId++;
+                    world.bullets.set(bid, {
+                        id: bid, shooterId: p.id, shooterName: p.name, color: p.color,
+                        x: p.x + Math.cos(angle) * p.r,
+                        y: p.y + Math.sin(angle) * p.r,
+                        vx: Math.cos(angle) * SURV.BULLET_SPEED,
+                        vy: Math.sin(angle) * SURV.BULLET_SPEED,
+                        life: SURV.BULLET_LIFETIME,
+                    });
+                }
+            }
+        }
+    }
+
+    // ── Battle: move bullets + collision ──────────────────────────────────
+    if (world.mode === 'battle' && world.bullets) {
+        for (const [bid, b] of world.bullets) {
+            b.x += b.vx * DT; b.y += b.vy * DT; b.life--;
+            if (b.life <= 0 || b.x < 0 || b.x > SURV.WORLD || b.y < 0 || b.y > SURV.WORLD) {
+                world.bullets.delete(bid); continue;
+            }
+            let hit = false;
+            for (const p of world.players.values()) {
+                if (!p.alive || p.id === b.shooterId) continue;
+                const ddx = b.x - p.x, ddy = b.y - p.y;
+                if (ddx * ddx + ddy * ddy < p.r * p.r) {
+                    p.mass = Math.max(SURV.MIN_MASS, p.mass - SURV.BULLET_DAMAGE);
+                    p.r = survRadius(p.mass);
+                    if (p.mass <= SURV.MIN_MASS) survKillPlayer(world, p, b.shooterName + ' (súng)');
+                    hit = true; break;
+                }
+            }
+            if (hit) world.bullets.delete(bid);
         }
     }
 
@@ -227,22 +310,15 @@ function survTick(world) {
         }
     }
 
-    // ── Win conditions ────────────────────────────────────────────────────
-    if (!world.winner && world.resetAt === 0) {
+    // ── Win condition (battle) ────────────────────────────────────────────
+    if (world.mode === 'battle' && !world.winner && world.resetAt === 0) {
         const stillAlive = [...world.players.values()].filter(p => p.alive);
-        if (world.mode === 'battle' && world.players.size >= 2 && stillAlive.length <= 1) {
+        if (world.players.size >= 2 && stillAlive.length <= 1) {
             const w = stillAlive[0];
             world.winner = w
                 ? { name: w.name, color: w.color, mass: Math.floor(w.mass) }
                 : { name: 'Không ai', color: '#aaa', mass: 0 };
             world.resetAt = world.tick + SURV.BATTLE_RESET_DELAY * SURV.TICK_RATE;
-        }
-        if (world.mode === 'race') {
-            const firstToTarget = stillAlive.find(p => p.mass >= SURV.RACE_TARGET);
-            if (firstToTarget) {
-                world.winner = { name: firstToTarget.name, color: firstToTarget.color, mass: Math.floor(firstToTarget.mass) };
-                world.resetAt = world.tick + SURV.RACE_RESET_DELAY * SURV.TICK_RATE;
-            }
         }
     }
 
@@ -264,21 +340,28 @@ function survTick(world) {
         : 0;
 
     const stateMsg = JSON.stringify({
-        type:           'SURVIVAL_STATE',
-        mode:           world.mode,
-        tick:           world.tick,
-        roundNum:       world.roundNum,
-        players:        [...world.players.values()].map(p => ({
+        type:        'SURVIVAL_STATE',
+        mode:        world.mode,
+        tick:        world.tick,
+        roundNum:    world.roundNum,
+        players:     [...world.players.values()].map(p => ({
             id: p.id, name: p.name,
             x: Math.round(p.x), y: Math.round(p.y), r: Math.round(p.r),
-            color: p.color, alive: p.alive
+            color: p.color, alive: p.alive,
+            weaponLevel: p.weaponLevel || 0,
+            mana: world.mode === 'battle' ? Math.round(p.mana) : undefined,
         })),
-        food:           [...world.food.values()],
+        food:        [...world.food.values()],
         leaderboard,
-        zone:           zoneData,
-        winner:         world.winner,
+        zone:        zoneData,
+        winner:      world.winner,
         resetCountdown,
-        raceTarget:     world.mode === 'race' ? SURV.RACE_TARGET : null
+        bullets:     world.bullets ? [...world.bullets.values()].map(b => ({
+            id: b.id, x: Math.round(b.x), y: Math.round(b.y), color: b.color
+        })) : null,
+        weaponBoxes: world.weaponBoxes ? [...world.weaponBoxes.values()].map(wb => ({
+            id: wb.id, x: Math.round(wb.x), y: Math.round(wb.y)
+        })) : null,
     });
 
     for (const p of world.players.values()) {
@@ -291,6 +374,7 @@ function survTick(world) {
 function survStart(world) {
     if (world.interval) return;
     survSpawnFood(world);
+    if (world.mode === 'battle') survSpawnWeaponBoxes(world);
     world.interval = setInterval(() => survTick(world), 1000 / SURV.TICK_RATE);
     console.log(`[SURVIVAL:${world.mode}] Game loop started`);
 }
@@ -307,6 +391,498 @@ function survPlayerLeave(mode, playerId) {
     if (!world) return;
     world.players.delete(playerId);
     if (world.players.size === 0) survStop(world);
+}
+// ==========================================================================
+
+// ==========================================================================
+// PAPER.IO — territory-claiming arena (grid-based, players + bots)
+// ==========================================================================
+const PIO = {
+    GRID:               60,        // grid width/height in cells
+    CELL:               32,        // pixel size of one cell (client uses this)
+    TICK_RATE:          15,        // ticks per second (= cell moves per second)
+    BROADCAST_EVERY:    1,         // broadcast every N ticks
+    START_AREA:         3,         // size of starting territory square (3x3)
+    MIN_PLAYERS:        4,         // bots fill up to this count when humans <4
+    MAX_PLAYERS:        12,
+    MAX_BOTS:           6,
+    BOT_NAMES: ['Linh','Minh','Hà','Long','Vy','Tú','Hân','Bảo','Khôi','Trí','Nga','Lan','Phong','Đạt','Quyên'],
+    COLORS: ['#ff4757','#2ed573','#1e90ff','#ffa502','#ff6b81','#a29bfe',
+             '#00cec9','#fd79a8','#e17055','#6c5ce7','#00b894','#fdcb6e',
+             '#55efc4','#74b9ff','#dfe6e9','#fab1a0'],
+    DIR_DX: { up: 0, down: 0, left: -1, right: 1 },
+    DIR_DY: { up: -1, down: 1, left: 0, right: 0 },
+    OPPOSITE: { up: 'down', down: 'up', left: 'right', right: 'left' },
+    ROUND_END_DELAY:   8,          // seconds to show winner before reset
+    AUTO_WIN_PCT:      0.55        // claim 55% of map → instant win
+};
+
+// Slot index 0..(MAX_PLAYERS-1) → playerId. Used as compact grid encoding (byte per cell).
+// owner byte:  0=empty, 1..MAX_PLAYERS=playerSlot+1
+// trail byte:  0=no trail, 1..MAX_PLAYERS=playerSlot+1
+let pioWorld = null;
+
+function pioCreateWorld() {
+    const N = PIO.GRID;
+    return {
+        owner:      new Uint8Array(N * N),   // ownership grid
+        trail:      new Uint8Array(N * N),   // trail grid
+        players:    new Map(),                // id -> player
+        slots:      new Array(PIO.MAX_PLAYERS).fill(null),  // slot -> id (or null)
+        tick:       0,
+        interval:   null,
+        roundNum:   1,
+        winner:     null,                     // { name, color, slot, pct }
+        resetAt:    0,
+        events:     []                        // claim events for client SFX
+    };
+}
+
+function pioCellIdx(x, y) { return y * PIO.GRID + x; }
+function pioInBounds(x, y) { return x >= 0 && y >= 0 && x < PIO.GRID && y < PIO.GRID; }
+
+function pioAllocSlot(world) {
+    for (let i = 0; i < PIO.MAX_PLAYERS; i++) {
+        if (world.slots[i] === null) return i;
+    }
+    return -1;
+}
+
+function pioFindFreeSpawn(world) {
+    // try up to 40 random spots that don't collide with existing territories
+    const N = PIO.GRID, A = PIO.START_AREA, M = 2;
+    for (let attempt = 0; attempt < 40; attempt++) {
+        const gx = M + Math.floor(Math.random() * (N - A - M * 2));
+        const gy = M + Math.floor(Math.random() * (N - A - M * 2));
+        let clear = true;
+        // check small expanded box for collision with other territories
+        for (let y = gy - 1; y < gy + A + 1 && clear; y++) {
+            for (let x = gx - 1; x < gx + A + 1 && clear; x++) {
+                if (pioInBounds(x, y) && world.owner[pioCellIdx(x, y)] !== 0) clear = false;
+            }
+        }
+        if (clear) return { gx, gy };
+    }
+    return { gx: M, gy: M };
+}
+
+function pioPaintStartArea(world, slot, gx, gy) {
+    const A = PIO.START_AREA;
+    const slotByte = slot + 1;
+    for (let y = gy; y < gy + A; y++) {
+        for (let x = gx; x < gx + A; x++) {
+            if (pioInBounds(x, y)) world.owner[pioCellIdx(x, y)] = slotByte;
+        }
+    }
+}
+
+function pioCreatePlayer(world, name, color, isBot, ws) {
+    const slot = pioAllocSlot(world);
+    if (slot < 0) return null;
+    const id  = (isBot ? 'pb-' : 'pp-') + Date.now() + '-' + Math.floor(Math.random() * 9999);
+    const sp  = pioFindFreeSpawn(world);
+    const cx  = sp.gx + Math.floor(PIO.START_AREA / 2);
+    const cy  = sp.gy + Math.floor(PIO.START_AREA / 2);
+    const p = {
+        id, name, color, slot, isBot, ws,
+        gx: cx, gy: cy,
+        dir: ['up','down','left','right'][Math.floor(Math.random()*4)],
+        nextDir: null,
+        alive: true,
+        respawnAt: 0,
+        // bot AI state
+        botGoal: null,
+        botStepsSinceTurn: 0
+    };
+    pioPaintStartArea(world, slot, sp.gx, sp.gy);
+    world.players.set(id, p);
+    world.slots[slot] = id;
+    return p;
+}
+
+function pioKillPlayer(world, p, killedByName) {
+    if (!p.alive) return;
+    p.alive = false;
+    // clear their trail from grid
+    const slotByte = p.slot + 1;
+    for (let i = 0; i < world.trail.length; i++) {
+        if (world.trail[i] === slotByte) world.trail[i] = 0;
+    }
+    if (p.ws) {
+        sendToPlayer(p.ws, { type: 'PAPERIO_DIED', killedBy: killedByName || 'va chạm' });
+    }
+    if (p.isBot) {
+        // bots respawn after 3s
+        p.respawnAt = world.tick + 3 * PIO.TICK_RATE;
+    }
+}
+
+function pioRespawnBot(world, p) {
+    // clear any leftover owned cells (death of bot = release territory back to empty)
+    const slotByte = p.slot + 1;
+    for (let i = 0; i < world.owner.length; i++) {
+        if (world.owner[i] === slotByte) world.owner[i] = 0;
+        if (world.trail[i] === slotByte) world.trail[i] = 0;
+    }
+    const sp = pioFindFreeSpawn(world);
+    p.gx = sp.gx + Math.floor(PIO.START_AREA / 2);
+    p.gy = sp.gy + Math.floor(PIO.START_AREA / 2);
+    p.dir = ['up','down','left','right'][Math.floor(Math.random()*4)];
+    p.nextDir = null;
+    p.alive = true;
+    p.respawnAt = 0;
+    pioPaintStartArea(world, p.slot, sp.gx, sp.gy);
+}
+
+// Flood fill from grid boundary across cells NOT equal to slotByte AND NOT trailByte.
+// All cells not reached become owned by slot.
+function pioClaimEnclosed(world, p) {
+    const N = PIO.GRID;
+    const slotByte = p.slot + 1;
+    const visited = new Uint8Array(N * N);
+    const stack = [];
+
+    // seed all boundary cells that aren't owned by this player
+    for (let x = 0; x < N; x++) {
+        if (world.owner[pioCellIdx(x, 0)] !== slotByte) { visited[pioCellIdx(x, 0)] = 1; stack.push([x, 0]); }
+        if (world.owner[pioCellIdx(x, N-1)] !== slotByte) { visited[pioCellIdx(x, N-1)] = 1; stack.push([x, N-1]); }
+    }
+    for (let y = 0; y < N; y++) {
+        if (world.owner[pioCellIdx(0, y)] !== slotByte) { visited[pioCellIdx(0, y)] = 1; stack.push([0, y]); }
+        if (world.owner[pioCellIdx(N-1, y)] !== slotByte) { visited[pioCellIdx(N-1, y)] = 1; stack.push([N-1, y]); }
+    }
+
+    while (stack.length) {
+        const [x, y] = stack.pop();
+        const nbrs = [[x+1,y],[x-1,y],[x,y+1],[x,y-1]];
+        for (const [nx, ny] of nbrs) {
+            if (!pioInBounds(nx, ny)) continue;
+            const idx = pioCellIdx(nx, ny);
+            if (visited[idx]) continue;
+            if (world.owner[idx] === slotByte) continue; // owned cells block flood
+            visited[idx] = 1;
+            stack.push([nx, ny]);
+        }
+    }
+
+    // Convert unvisited (= enclosed or trail) cells to player ownership
+    // Also any cell stolen from another player kills that player if they're standing on it & their territory becomes too small? — Paper.io standard: yes, steal territory directly.
+    let claimed = 0;
+    const stolenFromSlots = new Set();
+    for (let i = 0; i < N * N; i++) {
+        if (!visited[i]) {
+            const prev = world.owner[i];
+            if (prev !== slotByte) {
+                if (prev !== 0) stolenFromSlots.add(prev - 1);
+                world.owner[i] = slotByte;
+                claimed++;
+            }
+        }
+    }
+
+    // clear trail of this player after claim
+    for (let i = 0; i < world.trail.length; i++) {
+        if (world.trail[i] === slotByte) world.trail[i] = 0;
+    }
+
+    if (claimed > 0) {
+        world.events.push({ type: 'claim', slot: p.slot, count: claimed });
+    }
+
+    return claimed;
+}
+
+function pioCountTerritory(world, slot) {
+    const b = slot + 1;
+    let c = 0;
+    for (let i = 0; i < world.owner.length; i++) if (world.owner[i] === b) c++;
+    return c;
+}
+
+// Simple bot AI: pick next direction
+function pioBotDecide(world, p) {
+    const slotByte = p.slot + 1;
+    const N = PIO.GRID;
+    const valid = ['up','down','left','right'].filter(d => d !== PIO.OPPOSITE[p.dir]);
+
+    // score each direction
+    const scored = valid.map(d => {
+        const dx = PIO.DIR_DX[d], dy = PIO.DIR_DY[d];
+        let score = Math.random() * 0.3;
+        let lookahead = 0;
+        let nx = p.gx, ny = p.gy;
+        let safe = true;
+
+        for (let step = 1; step <= 6; step++) {
+            nx += dx; ny += dy;
+            if (!pioInBounds(nx, ny)) { safe = false; break; }
+            const idx = pioCellIdx(nx, ny);
+            // own trail = death
+            if (world.trail[idx] === slotByte) { safe = false; break; }
+            // own territory = safe but boring (lower score)
+            if (world.owner[idx] === slotByte) score -= 0.05;
+            // someone else's trail = great target (cuts them)
+            if (world.trail[idx] !== 0 && world.trail[idx] !== slotByte) score += 2.5;
+            lookahead++;
+        }
+        if (!safe) score -= 100;
+
+        // prefer to head back home when far from territory
+        // distance to nearest own cell
+        // sample nearest cell roughly: scan a few rings
+        score += 0.5; // slight bias to keep moving
+        return { d, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0];
+    if (best && best.score > -50) {
+        const turnChance = (best.d !== p.dir) ? 0.35 : 0.85;
+        if (Math.random() < turnChance) p.nextDir = best.d;
+    }
+}
+
+function pioTick(world) {
+    world.tick++;
+
+    // round reset
+    if (world.resetAt > 0 && world.tick >= world.resetAt) {
+        pioResetRound(world);
+    }
+
+    // respawn dead bots
+    for (const p of world.players.values()) {
+        if (!p.alive && p.isBot && p.respawnAt > 0 && world.tick >= p.respawnAt) {
+            pioRespawnBot(world, p);
+        }
+    }
+
+    // run bot AI every 2 ticks
+    if (world.tick % 2 === 0) {
+        for (const p of world.players.values()) {
+            if (p.alive && p.isBot) pioBotDecide(world, p);
+        }
+    }
+
+    // move each alive player by 1 cell
+    if (!world.winner) {
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            if (p.nextDir && p.nextDir !== PIO.OPPOSITE[p.dir]) {
+                p.dir = p.nextDir;
+                p.nextDir = null;
+            }
+            const dx = PIO.DIR_DX[p.dir], dy = PIO.DIR_DY[p.dir];
+            const nx = p.gx + dx, ny = p.gy + dy;
+
+            // boundary kill
+            if (!pioInBounds(nx, ny)) {
+                pioKillPlayer(world, p, 'va biên');
+                continue;
+            }
+
+            // step onto next cell
+            p.gx = nx; p.gy = ny;
+            const idx = pioCellIdx(nx, ny);
+            const slotByte = p.slot + 1;
+
+            // hit own trail = die
+            if (world.trail[idx] === slotByte) {
+                pioKillPlayer(world, p, 'cắn đuôi');
+                continue;
+            }
+
+            // hit other player's trail → cut them
+            const otherTrailSlot = world.trail[idx];
+            if (otherTrailSlot !== 0 && otherTrailSlot !== slotByte) {
+                const victimId = world.slots[otherTrailSlot - 1];
+                if (victimId) {
+                    const victim = world.players.get(victimId);
+                    if (victim) pioKillPlayer(world, victim, p.name);
+                }
+            }
+
+            // determine if currently INSIDE own territory
+            const onOwn = world.owner[idx] === slotByte;
+
+            if (!onOwn) {
+                // leave trail behind on this cell
+                world.trail[idx] = slotByte;
+            } else {
+                // re-entered own territory → claim if had any trail
+                let hadTrail = false;
+                for (let i = 0; i < world.trail.length; i++) {
+                    if (world.trail[i] === slotByte) { hadTrail = true; break; }
+                }
+                if (hadTrail) {
+                    pioClaimEnclosed(world, p);
+                    if (p.ws) sendToPlayer(p.ws, { type: 'PAPERIO_CLAIMED' });
+                }
+            }
+        }
+    }
+
+    // head-to-head: if two alive players share the same cell → smaller territory loses
+    if (!world.winner) {
+        const alive = [...world.players.values()].filter(p => p.alive);
+        const byCell = new Map();
+        for (const p of alive) {
+            const k = p.gx + ',' + p.gy;
+            const list = byCell.get(k) || [];
+            list.push(p);
+            byCell.set(k, list);
+        }
+        for (const list of byCell.values()) {
+            if (list.length < 2) continue;
+            // sort by territory desc; everyone except largest dies
+            list.sort((a, b) => pioCountTerritory(world, b.slot) - pioCountTerritory(world, a.slot));
+            const winner = list[0];
+            for (let i = 1; i < list.length; i++) {
+                pioKillPlayer(world, list[i], winner.name);
+            }
+        }
+    }
+
+    // win condition: someone owns >= AUTO_WIN_PCT of map
+    if (!world.winner && world.resetAt === 0) {
+        const total = PIO.GRID * PIO.GRID;
+        for (const p of world.players.values()) {
+            if (!p.alive) continue;
+            const cnt = pioCountTerritory(world, p.slot);
+            if (cnt / total >= PIO.AUTO_WIN_PCT) {
+                world.winner = { name: p.name, color: p.color, slot: p.slot, pct: Math.round(cnt * 100 / total) };
+                world.resetAt = world.tick + PIO.ROUND_END_DELAY * PIO.TICK_RATE;
+                break;
+            }
+        }
+    }
+
+    // refill bots if humans + bots < MIN_PLAYERS
+    const humanCount = [...world.players.values()].filter(p => !p.isBot).length;
+    const botCount   = [...world.players.values()].filter(p => p.isBot).length;
+    const needBots   = Math.min(PIO.MAX_BOTS, Math.max(0, PIO.MIN_PLAYERS - humanCount) - botCount);
+    if (humanCount > 0 && needBots > 0 && world.tick % 30 === 0) {
+        for (let i = 0; i < needBots; i++) {
+            const usedNames = new Set([...world.players.values()].map(p => p.name));
+            const candidates = PIO.BOT_NAMES.filter(n => !usedNames.has(n));
+            const name = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)]
+                                            : 'Bot' + Math.floor(Math.random() * 99);
+            const usedColors = new Set([...world.players.values()].map(p => p.color));
+            const palette = PIO.COLORS.filter(c => !usedColors.has(c));
+            const color = palette.length ? palette[Math.floor(Math.random() * palette.length)] : PIO.COLORS[0];
+            pioCreatePlayer(world, name, color, true, null);
+        }
+    }
+
+    // ── Broadcast state ──
+    if (world.tick % PIO.BROADCAST_EVERY !== 0) return;
+
+    const playerStates = [...world.players.values()].map(p => ({
+        id: p.id, name: p.name, color: p.color, slot: p.slot,
+        gx: p.gx, gy: p.gy, dir: p.dir, alive: p.alive,
+        isBot: p.isBot,
+        ter: pioCountTerritory(world, p.slot)
+    }));
+
+    const leaderboard = playerStates
+        .filter(p => p.alive)
+        .sort((a, b) => b.ter - a.ter)
+        .slice(0, 10)
+        .map(p => ({ id: p.id, name: p.name, color: p.color, ter: p.ter, slot: p.slot }));
+
+    const ownerB64 = Buffer.from(world.owner).toString('base64');
+    const trailB64 = Buffer.from(world.trail).toString('base64');
+
+    const total = PIO.GRID * PIO.GRID;
+    const resetCountdown = world.resetAt > 0
+        ? Math.ceil((world.resetAt - world.tick) / PIO.TICK_RATE) : 0;
+
+    const events = world.events;
+    world.events = [];
+
+    const msg = JSON.stringify({
+        type: 'PAPERIO_STATE',
+        tick: world.tick,
+        roundNum: world.roundNum,
+        grid: PIO.GRID,
+        cell: PIO.CELL,
+        owner: ownerB64,
+        trail: trailB64,
+        players: playerStates,
+        leaderboard,
+        total,
+        winner: world.winner,
+        resetCountdown,
+        events
+    });
+
+    for (const p of world.players.values()) {
+        if (p.ws && p.ws.readyState === WebSocket.OPEN) p.ws.send(msg);
+    }
+}
+
+function pioResetRound(world) {
+    world.owner.fill(0);
+    world.trail.fill(0);
+    world.winner = null;
+    world.resetAt = 0;
+    world.roundNum++;
+    for (const p of world.players.values()) {
+        const sp = pioFindFreeSpawn(world);
+        p.gx = sp.gx + Math.floor(PIO.START_AREA / 2);
+        p.gy = sp.gy + Math.floor(PIO.START_AREA / 2);
+        p.dir = ['up','down','left','right'][Math.floor(Math.random()*4)];
+        p.nextDir = null;
+        p.alive = true;
+        p.respawnAt = 0;
+        pioPaintStartArea(world, p.slot, sp.gx, sp.gy);
+    }
+    console.log(`[PAPERIO] Round ${world.roundNum} started`);
+}
+
+function pioStart() {
+    if (!pioWorld) pioWorld = pioCreateWorld();
+    if (pioWorld.interval) return;
+    pioWorld.interval = setInterval(() => pioTick(pioWorld), 1000 / PIO.TICK_RATE);
+    console.log('[PAPERIO] Game loop started');
+}
+
+function pioStop() {
+    if (!pioWorld || !pioWorld.interval) return;
+    clearInterval(pioWorld.interval);
+    pioWorld.interval = null;
+    console.log('[PAPERIO] Game loop stopped');
+}
+
+function pioPlayerLeave(playerId) {
+    if (!pioWorld) return;
+    const p = pioWorld.players.get(playerId);
+    if (!p) return;
+    // release ownership and trail
+    const b = p.slot + 1;
+    for (let i = 0; i < pioWorld.owner.length; i++) {
+        if (pioWorld.owner[i] === b) pioWorld.owner[i] = 0;
+        if (pioWorld.trail[i] === b) pioWorld.trail[i] = 0;
+    }
+    pioWorld.slots[p.slot] = null;
+    pioWorld.players.delete(playerId);
+    // stop loop if no humans left
+    const humans = [...pioWorld.players.values()].filter(pp => !pp.isBot);
+    if (humans.length === 0) {
+        // also drop all bots
+        for (const bp of [...pioWorld.players.values()]) {
+            if (bp.isBot) {
+                const bb = bp.slot + 1;
+                for (let i = 0; i < pioWorld.owner.length; i++) {
+                    if (pioWorld.owner[i] === bb) pioWorld.owner[i] = 0;
+                    if (pioWorld.trail[i] === bb) pioWorld.trail[i] = 0;
+                }
+                pioWorld.slots[bp.slot] = null;
+                pioWorld.players.delete(bp.id);
+            }
+        }
+        pioStop();
+    }
 }
 // ==========================================================================
 
@@ -906,6 +1482,7 @@ wss.on('connection', (ws) => {
     let currentRoomCode = null;
     let currentSurvivalId = null;
     let currentSurvivalMode = null;
+    let currentPaperioId = null;
 
     ws.on('message', (messageStr) => {
         try {
@@ -1516,7 +2093,8 @@ wss.on('connection', (ws) => {
                         id: sId, name: sName,
                         x: survRandPos(), y: survRandPos(),
                         mass: SURV.START_MASS, r: survRadius(SURV.START_MASS),
-                        dx: 0, dy: 0, color: sColor, alive: true, ws
+                        dx: 0, dy: 0, color: sColor, alive: true, ws,
+                        weaponLevel: 0, mana: SURV.MANA_MAX, sprint: false, shootTimer: 0,
                     });
                     currentSurvivalId   = sId;
                     currentSurvivalMode = sMode;
@@ -1531,6 +2109,7 @@ wss.on('connection', (ws) => {
                     if (sp && sp.alive) {
                         sp.dx = Math.max(-1, Math.min(1, Number(data.dx) || 0));
                         sp.dy = Math.max(-1, Math.min(1, Number(data.dy) || 0));
+                        if (typeof data.sprint === 'boolean') sp.sprint = data.sprint;
                     }
                     break;
                 }
@@ -1538,12 +2117,10 @@ wss.on('connection', (ws) => {
                 case 'SURVIVAL_RESPAWN': {
                     if (!currentSurvivalMode || !currentSurvivalId) break;
                     const sp = survWorlds[currentSurvivalMode]?.players.get(currentSurvivalId);
-                    // Manual respawn only in classic and hunger; race/battle are auto-managed
-                    if (sp && (currentSurvivalMode === 'classic' || currentSurvivalMode === 'hunger')) {
+                    if (sp && currentSurvivalMode === 'classic') {
                         sp.x = survRandPos(); sp.y = survRandPos();
                         sp.mass = SURV.START_MASS; sp.r = survRadius(SURV.START_MASS);
                         sp.dx = 0; sp.dy = 0; sp.alive = true; sp.ws = ws;
-                        delete sp.respawnAt;
                     }
                     break;
                 }
@@ -1553,6 +2130,73 @@ wss.on('connection', (ws) => {
                         survPlayerLeave(currentSurvivalMode, currentSurvivalId);
                         currentSurvivalId   = null;
                         currentSurvivalMode = null;
+                    }
+                    break;
+                }
+                // ======================================================
+
+                // =================== PAPER.IO GAME ===================
+                case 'PAPERIO_JOIN': {
+                    if (!pioWorld) pioWorld = pioCreateWorld();
+                    if (pioWorld.players.size >= PIO.MAX_PLAYERS) {
+                        sendToPlayer(ws, { type: 'PAPERIO_FULL' });
+                        break;
+                    }
+                    const pName = String(data.playerName || 'Player').trim().slice(0, 15) || 'Player';
+                    // pick a color not taken
+                    const used = new Set([...pioWorld.players.values()].map(pp => pp.color));
+                    const pColor = (data.color && PIO.COLORS.includes(data.color) && !used.has(data.color))
+                        ? data.color
+                        : (PIO.COLORS.find(c => !used.has(c)) || PIO.COLORS[0]);
+                    const np = pioCreatePlayer(pioWorld, pName, pColor, false, ws);
+                    if (!np) { sendToPlayer(ws, { type: 'PAPERIO_FULL' }); break; }
+                    currentPaperioId = np.id;
+                    sendToPlayer(ws, {
+                        type: 'PAPERIO_JOINED',
+                        playerId: np.id,
+                        slot: np.slot,
+                        color: np.color,
+                        grid: PIO.GRID,
+                        cell: PIO.CELL,
+                        tickRate: PIO.TICK_RATE,
+                        autoWinPct: PIO.AUTO_WIN_PCT
+                    });
+                    pioStart();
+                    break;
+                }
+
+                case 'PAPERIO_INPUT': {
+                    if (!currentPaperioId || !pioWorld) break;
+                    const pp = pioWorld.players.get(currentPaperioId);
+                    if (!pp || !pp.alive) break;
+                    const d = data.dir;
+                    if (['up','down','left','right'].includes(d) && d !== PIO.OPPOSITE[pp.dir]) {
+                        pp.nextDir = d;
+                    }
+                    break;
+                }
+
+                case 'PAPERIO_RESPAWN': {
+                    if (!currentPaperioId || !pioWorld) break;
+                    const pp = pioWorld.players.get(currentPaperioId);
+                    if (!pp || pp.alive) break;
+                    // human respawn: reset position with fresh starting square
+                    const sp = pioFindFreeSpawn(pioWorld);
+                    pp.gx = sp.gx + Math.floor(PIO.START_AREA / 2);
+                    pp.gy = sp.gy + Math.floor(PIO.START_AREA / 2);
+                    pp.dir = ['up','down','left','right'][Math.floor(Math.random()*4)];
+                    pp.nextDir = null;
+                    pp.alive = true;
+                    pp.respawnAt = 0;
+                    pp.ws = ws;
+                    pioPaintStartArea(pioWorld, pp.slot, sp.gx, sp.gy);
+                    break;
+                }
+
+                case 'PAPERIO_LEAVE': {
+                    if (currentPaperioId) {
+                        pioPlayerLeave(currentPaperioId);
+                        currentPaperioId = null;
                     }
                     break;
                 }
@@ -1574,6 +2218,12 @@ wss.on('connection', (ws) => {
             survPlayerLeave(currentSurvivalMode, currentSurvivalId);
             currentSurvivalId   = null;
             currentSurvivalMode = null;
+        }
+
+        // Paper.io cleanup
+        if (currentPaperioId) {
+            pioPlayerLeave(currentPaperioId);
+            currentPaperioId = null;
         }
 
         if (!currentRoomCode || !lobbies[currentRoomCode] || !currentPlayer) return;
