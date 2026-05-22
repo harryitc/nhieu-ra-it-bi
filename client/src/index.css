@@ -2962,25 +2962,62 @@ body {
 
 .round-title {
     font-family: var(--font-heading);
-    font-size: 18px;
-    font-weight: 700;
+    font-size: 20px;
+    font-weight: 800;
     color: white;
+    letter-spacing: 0.3px;
+}
+
+/* Limit play-screen header width to match game table */
+#play-screen.game-header,
+#play-screen .game-header {
+    max-width: 600px;
 }
 
 /* game-table in React is the full circular container */
 #play-screen .game-table {
     width: 100%;
-    max-width: 560px;
+    max-width: 600px;
     aspect-ratio: 1 / 1;
     border-radius: 50%;
-    background: radial-gradient(circle, rgba(9,10,15,0.8) 0%, rgba(13,14,23,0.95) 100%);
-    border: 4px solid var(--card-border);
-    box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 25px rgba(0,240,255,0.03), inset 0 0 35px rgba(0,0,0,0.8);
+    background: radial-gradient(circle at center,
+        rgba(12,14,22,0.92) 0%,
+        rgba(8,10,18,0.97) 55%,
+        rgba(5,7,14,1) 100%
+    );
+    border: 3px solid rgba(0, 240, 255, 0.1);
+    box-shadow:
+        0 12px 50px rgba(0,0,0,0.7),
+        0 0 0 1px rgba(255,255,255,0.04),
+        inset 0 0 80px rgba(0,0,0,0.55),
+        inset 0 0 30px rgba(0,240,255,0.025);
     position: relative;
     display: flex;
     justify-content: center;
     align-items: center;
     margin: 0 auto;
+}
+
+/* Decorative inner rings */
+#play-screen .game-table::before {
+    content: '';
+    position: absolute;
+    width: 64%;
+    height: 64%;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 240, 255, 0.055);
+    pointer-events: none;
+    z-index: 1;
+}
+#play-screen .game-table::after {
+    content: '';
+    position: absolute;
+    width: 32%;
+    height: 32%;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 240, 255, 0.04);
+    pointer-events: none;
+    z-index: 1;
 }
 
 /* Players circle – absolute positioning container */
@@ -2991,13 +3028,14 @@ body {
     top: 0;
     left: 0;
     pointer-events: none;
+    z-index: 10;
 }
 
 /* Individual player node */
 .player-node {
     position: absolute;
-    width: 80px;
-    height: 110px;
+    width: 100px;
+    height: 168px;
     transform: translate(-50%, -50%);
     display: flex;
     flex-direction: column;
@@ -3007,37 +3045,44 @@ body {
     transition: var(--transition-bounce);
 }
 
+/* Player card – rounded rectangle, shows the hand prominently */
 .player-avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.05);
-    border: 2px solid rgba(255,255,255,0.15);
+    width: 78px;
+    height: 104px;
+    border-radius: 18px;
+    background: rgba(255,255,255,0.04);
+    border: 2px solid rgba(255,255,255,0.12);
     display: flex;
     justify-content: center;
     align-items: center;
-    margin-bottom: 5px;
+    margin-bottom: 8px;
     transition: var(--transition-bounce);
     overflow: hidden;
     position: relative;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.55);
 }
 
 .player-label {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
+    gap: 0;
 }
 
 .player-name-tag {
-    font-size: 10px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 700;
     text-align: center;
-    max-width: 78px;
+    max-width: 96px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+    color: rgba(255,255,255,0.92);
+    background: rgba(0,0,0,0.6);
+    padding: 3px 8px;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.08);
+    letter-spacing: 0.2px;
 }
 
 .safe-badge-inline {
@@ -3048,60 +3093,69 @@ body {
 /* Player node glow states */
 .player-node.glow-safe .player-avatar {
     border-color: var(--neon-green);
-    box-shadow: 0 0 15px var(--neon-green-glow);
+    background: rgba(57,255,20,0.08);
+    box-shadow: 0 0 22px var(--neon-green-glow), 0 4px 18px rgba(0,0,0,0.5);
 }
 
 .player-node.glow-loser .player-avatar {
     border-color: var(--neon-red);
-    box-shadow: 0 0 20px var(--neon-red-glow);
-    animation: animate-shake 0.5s ease-in-out;
+    background: rgba(255,49,49,0.08);
+    box-shadow: 0 0 28px var(--neon-red-glow), 0 4px 18px rgba(0,0,0,0.5);
+    animation: animate-shake 0.4s ease-in-out 3;
+}
+
+.player-node.is-safe .player-avatar {
+    border-color: var(--neon-green);
+    background: rgba(57,255,20,0.06);
+    box-shadow: 0 0 16px var(--neon-green-glow), 0 4px 18px rgba(0,0,0,0.5);
 }
 
 .player-node.is-me .player-avatar {
     border-color: var(--neon-blue);
-    box-shadow: 0 0 10px var(--neon-blue-glow);
+    box-shadow: 0 0 14px var(--neon-blue-glow), 0 4px 18px rgba(0,0,0,0.5);
 }
 
-/* Hand card variants used by React */
+/* Hand card variants – fill parent card */
 .hand-card {
-    width: 46px;
-    height: 60px;
-    border-radius: 10px;
+    width: 100%;
+    height: 100%;
+    border-radius: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: 24px;
     transition: var(--transition-smooth);
     position: relative;
 }
 
 .hand-card.hand-safe {
-    background: rgba(57,255,20,0.06);
-    border: 1px solid rgba(57,255,20,0.25);
+    background: rgba(57,255,20,0.07);
     color: var(--neon-green);
+}
+.hand-card.hand-safe .material-symbols-rounded {
+    font-size: 34px;
+    text-shadow: 0 0 14px var(--neon-green-glow);
 }
 
 .hand-card.hand-chosen {
-    background: rgba(255,223,0,0.06);
-    border: 1px solid rgba(255,223,0,0.3);
-    box-shadow: 0 0 10px rgba(255,223,0,0.12);
+    background: rgba(255,223,0,0.05);
+    box-shadow: inset 0 0 18px rgba(255,223,0,0.06);
     animation: float-hand 3s infinite alternate ease-in-out;
 }
 
 .hand-card.hand-revealed {
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.04);
 }
 
 .hand-card.hand-empty {
-    background: rgba(255,255,255,0.02);
-    border: 1px dashed rgba(255,255,255,0.1);
+    background: transparent;
     color: var(--text-muted);
 }
 
+/* SVG wrapper – 10:13 aspect ratio to suit búa/kéo/bao (viewBox 100×130) */
 .hand-svg-wrapper {
-    width: 36px;
-    height: 36px;
+    width: 56px;
+    height: 73px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -3110,16 +3164,16 @@ body {
 .hand-svg-wrapper svg {
     width: 100%;
     height: 100%;
-    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4));
+    filter: drop-shadow(0 3px 6px rgba(0,0,0,0.5));
 }
 
 .hand-empty-icon {
-    font-size: 20px;
-    opacity: 0.4;
+    font-size: 26px;
+    opacity: 0.3;
 }
 
 .spectator-icon {
-    font-size: 18px;
+    font-size: 22px;
     color: var(--neon-yellow);
     opacity: 0.7;
 }
@@ -3134,25 +3188,27 @@ body {
 }
 
 .reveal-btn {
-    padding: 10px 20px;
-    font-size: 13px;
+    padding: 13px 24px;
+    font-size: 14px;
     font-weight: 800;
     border-radius: 50px;
     white-space: nowrap;
+    max-width: 260px;
+    text-align: center;
 }
 
 /* ── ChoiceBar ──────────────────────────────────────────────────── */
 .choice-bar {
     width: 100%;
-    max-width: 560px;
-    margin: 12px auto 0 auto;
+    max-width: 600px;
+    margin: 16px auto 0 auto;
     text-align: center;
-    background: rgba(255,255,255,0.02);
-    backdrop-filter: blur(12px);
-    border: 1px solid var(--card-border);
-    border-radius: 24px;
-    padding: 18px;
-    box-shadow: 0 -4px 30px rgba(0,0,0,0.3);
+    background: rgba(255,255,255,0.025);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 28px;
+    padding: 20px;
+    box-shadow: 0 -4px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.02);
 }
 
 /* override grid in choice-buttons-container for kbo mode */
@@ -3167,41 +3223,119 @@ body {
 }
 
 .choice-btn {
-    background: rgba(255,255,255,0.02);
+    background: rgba(255,255,255,0.03);
     border: 2px solid rgba(255,255,255,0.08);
-    border-radius: 18px;
-    padding: 14px 8px;
+    border-radius: 20px;
+    padding: 16px 8px 14px;
     cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     transition: var(--transition-bounce);
     outline: none;
     color: var(--text-primary);
+    min-height: 130px;
+    position: relative;
+    overflow: hidden;
+}
+
+.choice-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 25%, rgba(255,255,255,0.04), transparent 65%);
+    pointer-events: none;
 }
 
 .choice-btn:hover:not(.disabled) {
-    transform: translateY(-4px);
-    border-color: var(--neon-blue);
-    box-shadow: 0 0 20px var(--neon-blue-glow);
+    transform: translateY(-5px);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.4);
 }
 
+/* Per-choice accent: hover */
+.choice-btn[data-choice="kéo"]:hover:not(.disabled) {
+    border-color: var(--neon-purple);
+    background: rgba(189,0,255,0.06);
+    box-shadow: 0 8px 28px rgba(189,0,255,0.18);
+}
+.choice-btn[data-choice="búa"]:hover:not(.disabled) {
+    border-color: var(--neon-orange);
+    background: rgba(255,94,0,0.06);
+    box-shadow: 0 8px 28px rgba(255,94,0,0.18);
+}
+.choice-btn[data-choice="bao"]:hover:not(.disabled) {
+    border-color: var(--neon-green);
+    background: rgba(57,255,20,0.05);
+    box-shadow: 0 8px 28px rgba(57,255,20,0.12);
+}
+.choice-btn[data-choice="sấp"]:hover:not(.disabled) {
+    border-color: var(--neon-red);
+    background: rgba(255,49,49,0.06);
+    box-shadow: 0 8px 28px rgba(255,49,49,0.18);
+}
+.choice-btn[data-choice="ngửa"]:hover:not(.disabled) {
+    border-color: var(--neon-blue);
+    background: rgba(0,240,255,0.05);
+    box-shadow: 0 8px 28px rgba(0,240,255,0.12);
+}
+
+/* Per-choice accent: hover label color */
+.choice-btn[data-choice="kéo"]:hover .choice-label { color: var(--neon-purple); }
+.choice-btn[data-choice="búa"]:hover .choice-label { color: var(--neon-orange); }
+.choice-btn[data-choice="bao"]:hover .choice-label { color: var(--neon-green); }
+.choice-btn[data-choice="sấp"]:hover .choice-label { color: var(--neon-red); }
+.choice-btn[data-choice="ngửa"]:hover .choice-label { color: var(--neon-blue); }
+
+/* Per-choice accent: selected */
+.choice-btn.selected[data-choice="kéo"] {
+    border-color: var(--neon-purple);
+    background: rgba(189,0,255,0.09);
+    box-shadow: 0 0 28px rgba(189,0,255,0.22);
+}
+.choice-btn.selected[data-choice="búa"] {
+    border-color: var(--neon-orange);
+    background: rgba(255,94,0,0.09);
+    box-shadow: 0 0 28px rgba(255,94,0,0.22);
+}
+.choice-btn.selected[data-choice="bao"] {
+    border-color: var(--neon-green);
+    background: rgba(57,255,20,0.07);
+    box-shadow: 0 0 28px rgba(57,255,20,0.16);
+}
+.choice-btn.selected[data-choice="sấp"] {
+    border-color: var(--neon-red);
+    background: rgba(255,49,49,0.09);
+    box-shadow: 0 0 28px rgba(255,49,49,0.22);
+}
+.choice-btn.selected[data-choice="ngửa"] {
+    border-color: var(--neon-blue);
+    background: rgba(0,240,255,0.07);
+    box-shadow: 0 0 28px rgba(0,240,255,0.16);
+}
+/* fallback selected (no data-choice match) */
 .choice-btn.selected {
     border-color: var(--neon-yellow);
     background: rgba(255,223,0,0.08);
-    box-shadow: 0 0 25px rgba(255,223,0,0.25);
+    box-shadow: 0 0 28px rgba(255,223,0,0.2);
 }
 
+/* Per-choice accent: selected label color */
+.choice-btn.selected[data-choice="kéo"] .choice-label { color: var(--neon-purple); }
+.choice-btn.selected[data-choice="búa"] .choice-label { color: var(--neon-orange); }
+.choice-btn.selected[data-choice="bao"] .choice-label { color: var(--neon-green); }
+.choice-btn.selected[data-choice="sấp"] .choice-label { color: var(--neon-red); }
+.choice-btn.selected[data-choice="ngửa"] .choice-label { color: var(--neon-blue); }
+
 .choice-btn.disabled {
-    opacity: 0.25;
+    opacity: 0.2;
     pointer-events: none;
     cursor: not-allowed;
 }
 
 .choice-btn .hand-svg-wrapper {
-    width: 52px;
-    height: 52px;
+    width: 64px;
+    height: 83px;
 }
 
 .choice-locked-message {
@@ -3692,30 +3826,27 @@ body {
 
     /* Play */
     #play-screen .game-table {
-        max-width: 380px;
+        max-width: 420px;
     }
     .player-node {
-        width: 66px;
-        height: 94px;
+        width: 84px;
+        height: 142px;
     }
     .player-avatar {
-        width: 34px;
-        height: 34px;
-    }
-    .hand-card {
-        width: 36px;
-        height: 48px;
+        width: 66px;
+        height: 88px;
+        border-radius: 14px;
     }
     .hand-svg-wrapper {
-        width: 28px;
-        height: 28px;
+        width: 46px;
+        height: 60px;
     }
     .player-name-tag {
-        font-size: 9px;
-        max-width: 62px;
+        font-size: 10px;
+        max-width: 80px;
     }
     .round-title {
-        font-size: 15px;
+        font-size: 17px;
     }
     .countdown-display {
         font-size: 40px;
@@ -3723,17 +3854,18 @@ body {
 
     /* Choice bar */
     .choice-bar {
-        max-width: 380px;
-        padding: 14px;
-        border-radius: 18px;
+        max-width: 420px;
+        padding: 16px;
+        border-radius: 22px;
     }
     .choice-btn {
-        padding: 10px 6px;
-        border-radius: 14px;
+        padding: 12px 6px;
+        border-radius: 16px;
+        min-height: 112px;
     }
     .choice-btn .hand-svg-wrapper {
-        width: 40px;
-        height: 40px;
+        width: 52px;
+        height: 68px;
     }
     .choice-label {
         font-size: 10px;
@@ -3815,59 +3947,58 @@ body {
         margin-bottom: 14px;
     }
     .round-title {
-        font-size: 13px;
+        font-size: 15px;
     }
     #play-screen .game-table {
-        max-width: 300px;
+        max-width: 320px;
     }
     .player-node {
-        width: 54px;
-        height: 76px;
+        width: 66px;
+        height: 114px;
     }
     .player-avatar {
-        width: 28px;
-        height: 28px;
-    }
-    .hand-card {
-        width: 28px;
-        height: 38px;
+        width: 52px;
+        height: 70px;
+        border-radius: 12px;
     }
     .hand-svg-wrapper {
-        width: 22px;
-        height: 22px;
+        width: 36px;
+        height: 47px;
     }
     .player-name-tag {
-        font-size: 8px;
-        max-width: 50px;
+        font-size: 9px;
+        max-width: 62px;
+        padding: 2px 6px;
     }
     .countdown-display {
         font-size: 30px;
     }
     .reveal-btn {
-        font-size: 11px;
-        padding: 8px 14px;
+        font-size: 12px;
+        padding: 10px 16px;
     }
 
     /* Choice bar */
     .choice-bar {
-        padding: 12px 10px;
-        border-radius: 16px;
+        padding: 14px 10px;
+        border-radius: 20px;
     }
     .choice-buttons-container {
         gap: 8px;
     }
     .choice-buttons-container.kbo-mode {
         grid-template-columns: 1fr 1fr 1fr;
-        gap: 6px;
+        gap: 7px;
     }
     .choice-btn {
-        padding: 8px 4px;
-        border-radius: 12px;
-        gap: 5px;
+        padding: 12px 6px 10px;
+        border-radius: 14px;
+        gap: 7px;
+        min-height: 100px;
     }
     .choice-btn .hand-svg-wrapper {
-        width: 32px;
-        height: 32px;
+        width: 44px;
+        height: 57px;
     }
     .choice-label {
         font-size: 9px;
@@ -3976,11 +4107,24 @@ body {
         font-size: 18px;
     }
     #play-screen .game-table {
-        max-width: 260px;
+        max-width: 270px;
     }
-    .choice-buttons-container.kbo-mode {
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 4px;
+    .player-node {
+        width: 56px;
+        height: 96px;
+    }
+    .player-avatar {
+        width: 42px;
+        height: 56px;
+        border-radius: 10px;
+    }
+    .hand-svg-wrapper {
+        width: 28px;
+        height: 36px;
+    }
+    .choice-btn .hand-svg-wrapper {
+        width: 36px;
+        height: 47px;
     }
     .emoji-reaction-bar {
         gap: 2px;
