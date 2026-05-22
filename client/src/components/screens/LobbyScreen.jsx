@@ -161,13 +161,13 @@ export default function LobbyScreen() {
                   <div className="config-section">
                     <label className="config-label">Thay đổi luật chơi:</label>
                     <select className="custom-select" id="host-select-mode" value={currentMode} onChange={handleModeChange}>
+                      <option value="oan-tu-ti">Oẳn Tù Tì</option>
                       <option value="majority-out">Nhiều Ra, Ít Bị</option>
-                      <option value="white-out">Trắng Ra, Đen Bị</option>
-                      <option value="black-out">Đen Ra, Trắng Bị</option>
+                      <option value="minority-out">Ít Ra, Nhiều Bị</option>
                     </select>
                   </div>
                   <div className="config-section">
-                    <label className="config-label">Số lần đổi sấp ngửa:</label>
+                    <label className="config-label">Số lần đổi lựa chọn:</label>
                     <select className="custom-select" id="host-select-changes" value={maxChanges} onChange={handleChangesChange}>
                       {CHANGE_OPTIONS.map((o) => (
                         <option key={o.value} value={o.value}>{o.label}</option>

@@ -8,7 +8,7 @@ export function escapeHtml(text) {
 }
 
 export const MODE_TITLES = {
+  'oan-tu-ti': 'Oẳn Tù Tì',
   'majority-out': 'Nhiều Ra, Ít Bị',
-  'white-out': 'Trắng Ra, Đen Bị',
-  'black-out': 'Đen Ra, Trắng Bị'
+  'minority-out': 'Ít Ra, Nhiều Bị'
 }
