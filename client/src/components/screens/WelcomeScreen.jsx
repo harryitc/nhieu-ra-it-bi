@@ -6,27 +6,7 @@ import { sendToServer } from '../../hooks/useWebSocket'
 import sounds from '../../utils/sounds'
 import { HAND_SVGS } from '../../utils/handSvgs'
 
-const MODES = [
-  {
-    id: 'oan-tu-ti',
-    icon: 'sports_kabaddi',
-    title: 'Oẳn Tù Tì',
-    desc: 'Kéo – Búa – Bao. Kéo thắng Bao, Búa thắng Kéo, Bao thắng Búa.',
-    badge: 'Chính'
-  },
-  {
-    id: 'majority-out',
-    icon: 'groups',
-    title: 'Nhiều Ra, Ít Bị',
-    desc: 'Số đông an toàn, số ít bị chọn (thua).'
-  },
-  {
-    id: 'minority-out',
-    icon: 'person_remove',
-    title: 'Ít Ra, Nhiều Bị',
-    desc: 'Số ít an toàn, số đông bị chọn (thua).'
-  }
-]
+
 
 export default function WelcomeScreen() {
   const navigate = useNavigate()
@@ -39,7 +19,6 @@ export default function WelcomeScreen() {
   const [hostName, setHostName] = useState(savedPlayerName || '')
   const [joinName, setJoinName] = useState(savedPlayerName || '')
   const [joinCode, setJoinCode] = useState('')
-  const [selectedMode, setSelectedMode] = useState('oan-tu-ti')
 
   // Handle direct-join URL param (?room=XXXX)
   const [directJoinCode, setDirectJoinCode] = useState(null)
@@ -60,10 +39,6 @@ export default function WelcomeScreen() {
     setJoinCode('')
   }
 
-  const handleSelectMode = (modeId) => {
-    sounds.playClick()
-    setSelectedMode(modeId)
-  }
 
   const handleCreateRoom = () => {
     sounds.playClick()
@@ -73,7 +48,7 @@ export default function WelcomeScreen() {
       return
     }
     setSavedPlayerName(name)
-    sendToServer({ type: 'CREATE_ROOM', hostName: name, gameMode: selectedMode })
+    sendToServer({ type: 'CREATE_ROOM', hostName: name, gameMode: 'oan-tu-ti' })
   }
 
   const handleJoinRoom = () => {
@@ -122,26 +97,6 @@ export default function WelcomeScreen() {
               </div>
             </div>
 
-            <div className="form-group">
-              <label>Chọn luật chơi</label>
-              <div className="modes-grid-vertical">
-                {MODES.map((m) => (
-                  <div
-                    key={m.id}
-                    className={`mode-select-item ${selectedMode === m.id ? 'active' : ''}`}
-                    data-mode={m.id}
-                    onClick={() => handleSelectMode(m.id)}
-                  >
-                    <span className="material-symbols-rounded mode-item-icon">{m.icon}</span>
-                    <div className="mode-desc">
-                      <h3>{m.title}</h3>
-                      <p>{m.desc}</p>
-                    </div>
-                    {m.badge && <span className="badge badge-popular">{m.badge}</span>}
-                  </div>
-                ))}
-              </div>
-            </div>
 
             <button className="btn btn-primary btn-large btn-glow-effect w-100" id="btn-create-room" onClick={handleCreateRoom}>
               <span className="material-symbols-rounded">add_circle</span>

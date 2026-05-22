@@ -57,10 +57,6 @@ export default function LobbyScreen() {
     sendToServer({ type: 'START_GAME' })
   }
 
-  const handleModeChange = (e) => {
-    if (!isHost) return
-    sendToServer({ type: 'UPDATE_ROOM_CONFIG', gameMode: e.target.value, maxChanges })
-  }
 
   const handleChangesChange = (e) => {
     if (!isHost) return
@@ -158,14 +154,6 @@ export default function LobbyScreen() {
               {/* Host Config Panel */}
               {isHost && (
                 <div className="host-config-panel" id="host-config-panel">
-                  <div className="config-section">
-                    <label className="config-label">Thay đổi luật chơi:</label>
-                    <select className="custom-select" id="host-select-mode" value={currentMode} onChange={handleModeChange}>
-                      <option value="oan-tu-ti">Oẳn Tù Tì</option>
-                      <option value="majority-out">Nhiều Ra, Ít Bị</option>
-                      <option value="minority-out">Ít Ra, Nhiều Bị</option>
-                    </select>
-                  </div>
                   <div className="config-section">
                     <label className="config-label">Số lần đổi lựa chọn:</label>
                     <select className="custom-select" id="host-select-changes" value={maxChanges} onChange={handleChangesChange}>
