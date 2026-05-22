@@ -5,11 +5,12 @@ import useGameStore from '../store/gameStore'
 import { escapeHtml } from '../utils/helpers'
 
 export default function HistoryPanel() {
-  const { matchHistory, playerStats, roomCode, historyExpanded } = useGameStore(useShallow((s) => ({
+  const { matchHistory, playerStats, roomCode, historyExpanded, currentMode } = useGameStore(useShallow((s) => ({
     matchHistory: s.matchHistory,
     playerStats: s.playerStats,
     roomCode: s.roomCode,
-    historyExpanded: s.historyExpanded
+    historyExpanded: s.historyExpanded,
+    currentMode: s.currentMode
   })))
   const setHistoryExpanded = useGameStore((s) => s.setHistoryExpanded)
   const [showModal, setShowModal] = useState(false)
@@ -57,6 +58,7 @@ export default function HistoryPanel() {
         <HistoryDetailModal
           matchHistory={matchHistory}
           playerStats={playerStats}
+          currentMode={currentMode}
           onClose={closeModal}
         />
       )}
@@ -87,13 +89,22 @@ function HistoryRow({ round, playerStats, onClick }) {
   )
 }
 
-function HistoryDetailModal({ matchHistory, playerStats, onClose }) {
+function HistoryDetailModal({ matchHistory, playerStats, currentMode, onClose }) {
   const [activeTab, setActiveTab] = useState('stats')
 
   const sortedStats = Object.values(playerStats).sort((a, b) => {
-    if (a.tournamentsLost !== b.tournamentsLost) return a.tournamentsLost - b.tournamentsLost
-    if (a.roundsSafe !== b.roundsSafe) return b.roundsSafe - a.roundsSafe
-    return b.roundsPlayed - a.roundsPlayed
+    // If it's Oan Tu Ti mode, sort stats by score (or roundsSafe) descending, then roundsPlayed descending
+    if (currentMode === 'oan-tu-ti') {
+      const scoreA = a.roundsSafe - a.roundsLost
+      const scoreB = b.roundsSafe - b.roundsLost
+      if (scoreA !== scoreB) return scoreB - scoreA
+      return b.roundsPlayed - a.roundsPlayed
+    } else {
+      // Original sorting for other game modes
+      if (a.tournamentsLost !== b.tournamentsLost) return a.tournamentsLost - b.tournamentsLost
+      if (a.roundsSafe !== b.roundsSafe) return b.roundsSafe - a.roundsSafe
+      return b.roundsPlayed - a.roundsPlayed
+    }
   })
 
   return (
@@ -145,7 +156,7 @@ function HistoryDetailModal({ matchHistory, playerStats, onClose }) {
 
         {/* Body */}
         <div style={{ flexGrow: 1, overflowY: 'auto', paddingRight: 5, marginBottom: 10 }}>
-          {activeTab === 'stats' && <StatsTab sortedStats={sortedStats} />}
+          {activeTab === 'stats' && <StatsTab sortedStats={sortedStats} currentMode={currentMode} />}
           {activeTab === 'log' && <LogTab matchHistory={matchHistory} playerStats={playerStats} />}
         </div>
       </div>
@@ -153,29 +164,42 @@ function HistoryDetailModal({ matchHistory, playerStats, onClose }) {
   )
 }
 
-function StatsTab({ sortedStats }) {
+function StatsTab({ sortedStats, currentMode }) {
+  const isOanTuTi = currentMode === 'oan-tu-ti'
+
   return (
     <div style={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: 13, color: 'rgba(255,255,255,0.9)' }}>
         <thead>
           <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}>
             <th style={{ padding: '10px 5px', fontWeight: 600, color: 'var(--text-muted)' }}>Người Chơi</th>
-            <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#10b981' }}>An Toàn</th>
-            <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#ef4444' }}>Bị Chọn</th>
-            <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#f43f5e' }}>Thua Chung Cuộc</th>
+            {isOanTuTi ? (
+              <>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#10b981' }}>Số Trận Thắng</th>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#ef4444' }}>Số Trận Thua</th>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: 'var(--neon-yellow)', textShadow: '0 0 5px rgba(234,179,8,0.3)' }}>Tổng Điểm (Score)</th>
+              </>
+            ) : (
+              <>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#10b981' }}>An Toàn</th>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#ef4444' }}>Bị Chọn</th>
+                <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: '#f43f5e' }}>Thua Chung Cuộc</th>
+              </>
+            )}
             <th style={{ padding: '10px 5px', fontWeight: 600, textAlign: 'center', color: 'var(--neon-blue)' }}>Tỉ Lệ Thắng</th>
           </tr>
         </thead>
         <tbody>
           {sortedStats.length === 0 ? (
             <tr>
-              <td colSpan={5} style={{ textAlign: 'center', padding: 20, color: 'rgba(255,255,255,0.4)' }}>
+              <td colSpan={isOanTuTi ? 5 : 5} style={{ textAlign: 'center', padding: 20, color: 'rgba(255,255,255,0.4)' }}>
                 Chưa có thống kê người chơi.
               </td>
             </tr>
           ) : (
             sortedStats.map((stat) => {
               const winRate = stat.roundsPlayed > 0 ? Math.round((stat.roundsSafe / stat.roundsPlayed) * 100) : 0
+              const score = stat.roundsSafe - stat.roundsLost
               return (
                 <tr key={stat.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                   <td style={{ padding: '12px 5px', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -184,7 +208,11 @@ function StatsTab({ sortedStats }) {
                   </td>
                   <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 500, color: '#10b981' }}>{stat.roundsSafe}</td>
                   <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 500, color: '#ef4444' }}>{stat.roundsLost}</td>
-                  <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 'bold', color: '#f43f5e' }}>{stat.tournamentsLost}</td>
+                  {isOanTuTi ? (
+                    <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 'bold', color: 'var(--neon-yellow)', textShadow: '0 0 5px rgba(234,179,8,0.3)' }}>{score}</td>
+                  ) : (
+                    <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 'bold', color: '#f43f5e' }}>{stat.tournamentsLost}</td>
+                  )}
                   <td style={{ padding: '12px 5px', textAlign: 'center', fontWeight: 'bold', color: 'var(--neon-blue)', textShadow: '0 0 5px rgba(0,240,255,0.3)' }}>{winRate}%</td>
                 </tr>
               )

@@ -1062,7 +1062,12 @@ body {
     font-weight: 800;
     color: var(--neon-yellow);
     text-shadow: 0 0 20px var(--neon-yellow-glow);
-    display: none;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    z-index: 200;
+    pointer-events: none;
     animation: scale-up-countdown 1s infinite ease-out;
 }
 
