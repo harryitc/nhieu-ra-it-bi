@@ -232,21 +232,15 @@ export default function Survival() {
       const aimAngle = Math.atan2(mdy, mdx)
       aimAngleRef.current = aimAngle
 
-      // Movement: WASD if any key held, otherwise follow mouse
+      // Movement: pure WASD
       const wasd = wasdRef.current
-      const hasWASD = wasd.w || wasd.a || wasd.s || wasd.d
       let movDx = 0, movDy = 0
-      if (hasWASD) {
-        if (wasd.a) movDx -= 1
-        if (wasd.d) movDx += 1
-        if (wasd.w) movDy -= 1
-        if (wasd.s) movDy += 1
-        const ml = Math.sqrt(movDx * movDx + movDy * movDy)
-        if (ml > 0) { movDx /= ml; movDy /= ml }
-      } else {
-        const mlen = Math.sqrt(mdx * mdx + mdy * mdy)
-        if (mlen > 8) { movDx = mdx / mlen; movDy = mdy / mlen }
-      }
+      if (wasd.a) movDx -= 1
+      if (wasd.d) movDx += 1
+      if (wasd.w) movDy -= 1
+      if (wasd.s) movDy += 1
+      const ml = Math.sqrt(movDx * movDx + movDy * movDy)
+      if (ml > 0) { movDx /= ml; movDy /= ml }
 
       ws.send(JSON.stringify({
         type: 'SURVIVAL_INPUT',
@@ -369,13 +363,26 @@ export default function Survival() {
         if (wl > 0) {
           const baseAngle = isMe ? aimAngleRef.current : (p.aimAngle || 0)
           const spreads = GUN_SPREADS[Math.min(wl, 4)] || [0]
-          const bW = Math.max(6, p.r * 0.3)
+          const bW = Math.max(7, p.r * 0.32)
+          const bLen = p.r * 1.25
+          const bStart = p.r * 0.28
+          const WL_BARREL_COLORS = ['','#74b9ff','#a29bfe','#fd79a8','#fdcb6e']
+          const muzzleColor = WL_BARREL_COLORS[wl] || '#74b9ff'
+          const isFiring = isMe && shootingRef.current
           for (const spread of spreads) {
-            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(baseAngle + spread)
-            ctx.fillStyle = '#636e72'
-            ctx.fillRect(p.r * 0.35, -bW / 2, p.r * 1.15, bW)
-            ctx.fillStyle = '#b2bec3'
-            ctx.fillRect(p.r * 0.35, -bW / 2, p.r * 1.15, bW * 0.35)
+            ctx.save()
+            ctx.translate(p.x, p.y); ctx.rotate(baseAngle + spread)
+            // Barrel body
+            ctx.fillStyle = '#1e2530'
+            roundRect(ctx, bStart, -bW / 2, bLen, bW, bW / 2.5); ctx.fill()
+            // Highlight stripe
+            ctx.fillStyle = '#4a5568'
+            roundRect(ctx, bStart, -bW / 2, bLen * 0.8, bW * 0.38, bW / 5); ctx.fill()
+            // Muzzle accent ring
+            ctx.fillStyle = isFiring ? muzzleColor : muzzleColor + '88'
+            if (isFiring) { ctx.shadowColor = muzzleColor; ctx.shadowBlur = 16 }
+            roundRect(ctx, bStart + bLen - 6, -bW / 2, 6, bW, bW / 2.5); ctx.fill()
+            ctx.shadowBlur = 0
             ctx.restore()
           }
         }
@@ -488,7 +495,8 @@ export default function Survival() {
         const rank = leaderboard.findIndex(e => e.id === myIdRef.current) + 1
         const mInfo = MODES.find(m => m.id === mode) || MODES[0]
         const isBattle = mode === 'battle'
-        const statsH = isBattle ? 104 : 74
+        const myWeaponLevel = isBattle ? (me.weaponLevel || 0) : 0
+        const statsH = isBattle ? (myWeaponLevel > 0 ? 134 : 104) : 74
         const statsY = H - statsH - 16
         ctx.fillStyle = 'rgba(8,9,15,0.84)'
         roundRect(ctx, 16, statsY, 164, statsH, 12); ctx.fill()
@@ -511,7 +519,59 @@ export default function Survival() {
             roundRect(ctx, 28, manaY + 5, 136 * (myMana / 100), 8, 3); ctx.fill()
             ctx.shadowBlur = 0
           }
+          // Weapon panel
+          if (myWeaponLevel > 0) {
+            const WL_COLORS = ['','#74b9ff','#a29bfe','#fd79a8','#fdcb6e']
+            const WL_NAMES  = ['','Súng đơn','Súng đôi','Ba nòng','Bốn nòng']
+            const wColor = WL_COLORS[myWeaponLevel]
+            const isFiringNow = shootingRef.current
+            const wlY = manaY + 24
+            ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1
+            ctx.beginPath(); ctx.moveTo(24, wlY - 7); ctx.lineTo(164, wlY - 7); ctx.stroke()
+            ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '9px Inter,sans-serif'
+            ctx.fillText('VŨ KHÍ', 28, wlY + 3)
+            ctx.fillStyle = isFiringNow ? wColor : wColor + 'bb'
+            if (isFiringNow) { ctx.shadowColor = wColor; ctx.shadowBlur = 10 }
+            ctx.font = 'bold 9px Inter,sans-serif'
+            ctx.fillText(WL_NAMES[myWeaponLevel], 72, wlY + 3)
+            ctx.shadowBlur = 0
+            for (let i = 0; i < 4; i++) {
+              const pipX = 28 + i * 34, pipY = wlY + 9
+              roundRect(ctx, pipX, pipY, 28, 7, 3)
+              if (i < myWeaponLevel) {
+                ctx.fillStyle = wColor
+                ctx.shadowColor = wColor; ctx.shadowBlur = isFiringNow ? 12 : 4
+                ctx.fill(); ctx.shadowBlur = 0
+              } else {
+                ctx.fillStyle = 'rgba(255,255,255,0.06)'; ctx.fill()
+              }
+            }
+          }
         }
+      }
+
+      // Crosshair (battle mode, when has gun — also hide native cursor)
+      if (mode === 'battle' && me && me.weaponLevel > 0) {
+        canvas.style.cursor = 'none'
+        const mx = mouseRef.current.x, my = mouseRef.current.y
+        const WL_CH_COLORS = ['','#74b9ff','#a29bfe','#fd79a8','#fdcb6e']
+        const chColor = WL_CH_COLORS[me.weaponLevel] || '#74b9ff'
+        const isFiringCH = shootingRef.current
+        const sz = isFiringCH ? 8 : 10, gap = isFiringCH ? 5 : 4
+        ctx.strokeStyle = isFiringCH ? chColor : 'rgba(255,255,255,0.85)'
+        ctx.lineWidth = isFiringCH ? 2 : 1.5
+        if (isFiringCH) { ctx.shadowColor = chColor; ctx.shadowBlur = 10 }
+        ctx.beginPath()
+        ctx.moveTo(mx - sz - gap, my); ctx.lineTo(mx - gap, my)
+        ctx.moveTo(mx + gap, my);     ctx.lineTo(mx + sz + gap, my)
+        ctx.moveTo(mx, my - sz - gap); ctx.lineTo(mx, my - gap)
+        ctx.moveTo(mx, my + gap);     ctx.lineTo(mx, my + sz + gap)
+        ctx.stroke()
+        ctx.fillStyle = isFiringCH ? chColor : 'rgba(255,255,255,0.9)'
+        ctx.beginPath(); ctx.arc(mx, my, isFiringCH ? 2.5 : 2, 0, Math.PI * 2); ctx.fill()
+        ctx.shadowBlur = 0
+      } else {
+        canvas.style.cursor = 'default'
       }
 
       rafRef.current = requestAnimationFrame(render)
