@@ -168,7 +168,7 @@ export default function Survival() {
 
   useEffect(() => {
     const onKey = e => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+      if (e.code === 'Space') {
         if (screenRef.current === 'playing') e.preventDefault()
         sprintRef.current = e.type === 'keydown'
       }
