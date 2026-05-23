@@ -413,7 +413,7 @@ const PIO = {
     DIR_DY: { up: -1, down: 1, left: 0, right: 0 },
     OPPOSITE: { up: 'down', down: 'up', left: 'right', right: 'left' },
     ROUND_END_DELAY:   8,          // seconds to show winner before reset
-    AUTO_WIN_PCT:      0.55        // claim 55% of map → instant win
+    AUTO_WIN_PCT:      1.0         // must own 100% of map (every cell) to win
 };
 
 // Slot index 0..(MAX_PLAYERS-1) → playerId. Used as compact grid encoding (byte per cell).
@@ -533,22 +533,25 @@ function pioRespawnBot(world, p) {
     pioPaintStartArea(world, p.slot, sp.gx, sp.gy);
 }
 
-// Flood fill from grid boundary across cells NOT equal to slotByte AND NOT trailByte.
-// All cells not reached become owned by slot.
+// Flood fill from grid boundary across cells that are NOT walls (= this player's owner or trail).
+// All cells not reached become owned by slot (= the enclosed region + the wall trail itself).
 function pioClaimEnclosed(world, p) {
     const N = PIO.GRID;
     const slotByte = p.slot + 1;
     const visited = new Uint8Array(N * N);
     const stack = [];
+    const isWall = (idx) => world.owner[idx] === slotByte || world.trail[idx] === slotByte;
 
-    // seed all boundary cells that aren't owned by this player
+    // seed boundary cells that aren't walls
     for (let x = 0; x < N; x++) {
-        if (world.owner[pioCellIdx(x, 0)] !== slotByte) { visited[pioCellIdx(x, 0)] = 1; stack.push([x, 0]); }
-        if (world.owner[pioCellIdx(x, N-1)] !== slotByte) { visited[pioCellIdx(x, N-1)] = 1; stack.push([x, N-1]); }
+        const i0 = pioCellIdx(x, 0), i1 = pioCellIdx(x, N - 1);
+        if (!isWall(i0)) { visited[i0] = 1; stack.push([x, 0]); }
+        if (!isWall(i1)) { visited[i1] = 1; stack.push([x, N - 1]); }
     }
     for (let y = 0; y < N; y++) {
-        if (world.owner[pioCellIdx(0, y)] !== slotByte) { visited[pioCellIdx(0, y)] = 1; stack.push([0, y]); }
-        if (world.owner[pioCellIdx(N-1, y)] !== slotByte) { visited[pioCellIdx(N-1, y)] = 1; stack.push([N-1, y]); }
+        const i0 = pioCellIdx(0, y), i1 = pioCellIdx(N - 1, y);
+        if (!isWall(i0)) { visited[i0] = 1; stack.push([0, y]); }
+        if (!isWall(i1)) { visited[i1] = 1; stack.push([N - 1, y]); }
     }
 
     while (stack.length) {
@@ -558,30 +561,24 @@ function pioClaimEnclosed(world, p) {
             if (!pioInBounds(nx, ny)) continue;
             const idx = pioCellIdx(nx, ny);
             if (visited[idx]) continue;
-            if (world.owner[idx] === slotByte) continue; // owned cells block flood
+            if (isWall(idx)) continue;
             visited[idx] = 1;
             stack.push([nx, ny]);
         }
     }
 
-    // Convert unvisited (= enclosed or trail) cells to player ownership
-    // Also any cell stolen from another player kills that player if they're standing on it & their territory becomes too small? — Paper.io standard: yes, steal territory directly.
+    // Cells not reached = enclosed region or the trail/owner walls themselves → become owned by this player.
     let claimed = 0;
-    const stolenFromSlots = new Set();
     for (let i = 0; i < N * N; i++) {
         if (!visited[i]) {
             const prev = world.owner[i];
             if (prev !== slotByte) {
-                if (prev !== 0) stolenFromSlots.add(prev - 1);
                 world.owner[i] = slotByte;
                 claimed++;
             }
+            // clear any trail bit inside the claimed region (including other players' trails)
+            world.trail[i] = 0;
         }
-    }
-
-    // clear trail of this player after claim
-    for (let i = 0; i < world.trail.length; i++) {
-        if (world.trail[i] === slotByte) world.trail[i] = 0;
     }
 
     if (claimed > 0) {
@@ -616,8 +613,8 @@ function pioBotDecide(world, p) {
             nx += dx; ny += dy;
             if (!pioInBounds(nx, ny)) { safe = false; break; }
             const idx = pioCellIdx(nx, ny);
-            // own trail = death
-            if (world.trail[idx] === slotByte) { safe = false; break; }
+            // own trail = closes a loop & claims (now positive)
+            if (world.trail[idx] === slotByte) { score += 1.2; break; }
             // own territory = safe but boring (lower score)
             if (world.owner[idx] === slotByte) score -= 0.05;
             // someone else's trail = great target (cuts them)
@@ -685,9 +682,10 @@ function pioTick(world) {
             const idx = pioCellIdx(nx, ny);
             const slotByte = p.slot + 1;
 
-            // hit own trail = die
+            // hit own trail = close loop & claim enclosed area
             if (world.trail[idx] === slotByte) {
-                pioKillPlayer(world, p, 'cắn đuôi');
+                pioClaimEnclosed(world, p);
+                if (p.ws) sendToPlayer(p.ws, { type: 'PAPERIO_CLAIMED' });
                 continue;
             }
 
@@ -721,7 +719,8 @@ function pioTick(world) {
         }
     }
 
-    // head-to-head: if two alive players share the same cell → smaller territory loses
+    // head-to-head: anyone OFF their own territory at the shared cell dies.
+    // If everyone is off, all of them die.
     if (!world.winner) {
         const alive = [...world.players.values()].filter(p => p.alive);
         const byCell = new Map();
@@ -733,11 +732,17 @@ function pioTick(world) {
         }
         for (const list of byCell.values()) {
             if (list.length < 2) continue;
-            // sort by territory desc; everyone except largest dies
-            list.sort((a, b) => pioCountTerritory(world, b.slot) - pioCountTerritory(world, a.slot));
-            const winner = list[0];
-            for (let i = 1; i < list.length; i++) {
-                pioKillPlayer(world, list[i], winner.name);
+            const safe = [];
+            const vulnerable = [];
+            for (const pp of list) {
+                const onOwn = world.owner[pioCellIdx(pp.gx, pp.gy)] === pp.slot + 1;
+                (onOwn ? safe : vulnerable).push(pp);
+            }
+            if (safe.length > 0) {
+                const killerName = safe[0].name;
+                for (const v of vulnerable) pioKillPlayer(world, v, killerName);
+            } else {
+                for (const pp of list) pioKillPlayer(world, pp, 'va chạm');
             }
         }
     }
