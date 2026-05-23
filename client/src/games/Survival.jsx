@@ -3,9 +3,8 @@ import { useNavigate } from 'react-router-dom'
 
 function getWsUrl() {
   if (import.meta.env.VITE_WS_URL) return import.meta.env.VITE_WS_URL
-  if (import.meta.env.DEV) return `ws://${window.location.host}/ws`
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${proto}//${window.location.host}/`
+  return `${proto}//${window.location.host}/ws`
 }
 
 function roundRect(ctx, x, y, w, h, r) {
@@ -30,21 +29,9 @@ const MODES = [
   },
   {
     id: 'battle', icon: 'crisis_alert', label: 'Chiến Trường', badge: '🔥 HOT',
-    sub: 'Vùng an toàn thu hẹp dần',
-    desc: 'Vùng xanh thu hẹp từ từ — đứng ngoài vùng sẽ mất máu. Người cuối cùng sống sót thắng vòng!',
+    sub: 'Vùng thu hẹp · Vũ khí · Sprint',
+    desc: 'Vùng an toàn thu hẹp dần, nhặt hòm vũ khí để nâng cấp súng, giữ SHIFT để bứt tốc. Người cuối cùng sống sót thắng vòng!',
     color: '#ff4757', glow: 'rgba(255,71,87,0.35)', grad: ['#ff4757', '#c0392b'],
-  },
-  {
-    id: 'race', icon: 'bolt', label: 'Tốc Chiến', badge: '⚡ NHANH',
-    sub: 'Đạt 500 khối lượng trước',
-    desc: 'Chạy đua đến mục tiêu 500 khối lượng. Chết thì về điểm xuất phát! Ai về đích trước thắng vòng.',
-    color: '#ffa502', glow: 'rgba(255,165,2,0.35)', grad: ['#ffa502', '#e67e22'],
-  },
-  {
-    id: 'hunger', icon: 'local_fire_department', label: 'Đói Liên Hồi', badge: '😈 KHÓ',
-    sub: 'Khối lượng tự giảm liên tục',
-    desc: 'Cell của bạn đang đói — khối lượng giảm dần theo thời gian. Phải ăn không ngừng để tồn tại!',
-    color: '#a29bfe', glow: 'rgba(162,155,254,0.35)', grad: ['#a29bfe', '#6c5ce7'],
   },
 ]
 
@@ -104,7 +91,7 @@ function ModeSelect({ onSelect, onBack }) {
             <span className="material-symbols-rounded">arrow_back</span>
           </button>
           <h1 className="app-title" style={{ fontSize: 26 }}>CHỌN CHẾ ĐỘ CHƠI</h1>
-          <p className="app-subtitle">4 chế độ — mỗi chế độ một phong cách chiến đấu khác nhau</p>
+          <p className="app-subtitle">2 chế độ — cổ điển và chiến trường đầy ắp hành động</p>
         </header>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {MODES.map(m => (
@@ -160,11 +147,10 @@ export default function Survival() {
   const [playerName,   setPlayerName]   = useState('')
   const [deathInfo,    setDeathInfo]    = useState(null)
   const [connError,    setConnError]    = useState('')
-  const [raceToast,    setRaceToast]    = useState(null)
 
   const canvasRef     = useRef(null)
   const wsRef         = useRef(null)
-  const stateRef      = useRef({ players:[], food:[], leaderboard:[], tick:0, zone:null, winner:null, resetCountdown:0, raceTarget:null, roundNum:1, mode:'classic' })
+  const stateRef      = useRef({ players:[], food:[], leaderboard:[], tick:0, zone:null, winner:null, resetCountdown:0, roundNum:1, mode:'classic', bullets:[], weaponBoxes:[] })
   const myIdRef       = useRef(null)
   const modeRef       = useRef('classic')
   const worldSizeRef  = useRef(6000)
@@ -173,9 +159,30 @@ export default function Survival() {
   const inputTimerRef = useRef(null)
   const roundNumRef   = useRef(1)
   const screenRef     = useRef('lobby')
-  const raceToastTimerRef = useRef(null)
+  const sprintRef     = useRef(false)
+  const shootingRef   = useRef(false)
+  const aimAngleRef   = useRef(0)
+  const wasdRef       = useRef({ w: false, a: false, s: false, d: false })
 
   useEffect(() => { screenRef.current = screen }, [screen])
+
+  useEffect(() => {
+    const onKey = e => {
+      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
+        if (screenRef.current === 'playing') e.preventDefault()
+        sprintRef.current = e.type === 'keydown'
+      }
+      if (screenRef.current !== 'playing') return
+      const down = e.type === 'keydown'
+      if (e.code === 'KeyW' || e.code === 'ArrowUp')    { e.preventDefault(); wasdRef.current.w = down }
+      if (e.code === 'KeyA' || e.code === 'ArrowLeft')  { e.preventDefault(); wasdRef.current.a = down }
+      if (e.code === 'KeyS' || e.code === 'ArrowDown')  { e.preventDefault(); wasdRef.current.s = down }
+      if (e.code === 'KeyD' || e.code === 'ArrowRight') { e.preventDefault(); wasdRef.current.d = down }
+    }
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('keyup', onKey)
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('keyup', onKey) }
+  }, [])
 
   const connectAndJoin = useCallback((name, mode) => {
     setConnError('')
@@ -201,33 +208,61 @@ export default function Survival() {
           }
           break
         case 'SURVIVAL_DIED':
-          if (msg.mode === 'race') {
-            const t = msg.killedBy === 'auto' ? 'Tự chết — hồi sinh sau 2s...' : `Bị ${msg.killedBy} nuốt — hồi sinh sau 2s...`
-            setRaceToast(t)
-            clearTimeout(raceToastTimerRef.current)
-            raceToastTimerRef.current = setTimeout(() => setRaceToast(null), 3000)
-          } else {
-            setDeathInfo(msg); setScreen('dead')
-          }
+          setDeathInfo(msg); setScreen('dead')
           break
       }
     }
     ws.onerror = () => setConnError('Không kết nối được máy chủ. Thử lại sau.')
-    ws.onclose = () => { if (screenRef.current === 'playing') setScreen('lobby') }
+    ws.onclose = () => { if (screenRef.current === 'playing') setScreen('modeSelect') }
   }, [])
 
   useEffect(() => {
     if (screen !== 'playing') { clearInterval(inputTimerRef.current); return }
+    const onMouseDown = e => { if (e.button === 0) shootingRef.current = true }
+    const onMouseUp = e => { if (e.button === 0) shootingRef.current = false }
+    window.addEventListener('mousedown', onMouseDown)
+    window.addEventListener('mouseup', onMouseUp)
     inputTimerRef.current = setInterval(() => {
       const ws = wsRef.current; if (!ws || ws.readyState !== 1) return
       const canvas = canvasRef.current; if (!canvas) return
-      const dx = mouseRef.current.x - canvas.width / 2
-      const dy = mouseRef.current.y - canvas.height / 2
-      const len = Math.sqrt(dx * dx + dy * dy)
-      if (len < 8) return
-      ws.send(JSON.stringify({ type: 'SURVIVAL_INPUT', dx: dx / len, dy: dy / len }))
+
+      // Aim angle always follows mouse
+      const mdx = mouseRef.current.x - canvas.width / 2
+      const mdy = mouseRef.current.y - canvas.height / 2
+      const aimAngle = Math.atan2(mdy, mdx)
+      aimAngleRef.current = aimAngle
+
+      // Movement: WASD if any key held, otherwise follow mouse
+      const wasd = wasdRef.current
+      const hasWASD = wasd.w || wasd.a || wasd.s || wasd.d
+      let movDx = 0, movDy = 0
+      if (hasWASD) {
+        if (wasd.a) movDx -= 1
+        if (wasd.d) movDx += 1
+        if (wasd.w) movDy -= 1
+        if (wasd.s) movDy += 1
+        const ml = Math.sqrt(movDx * movDx + movDy * movDy)
+        if (ml > 0) { movDx /= ml; movDy /= ml }
+      } else {
+        const mlen = Math.sqrt(mdx * mdx + mdy * mdy)
+        if (mlen > 8) { movDx = mdx / mlen; movDy = mdy / mlen }
+      }
+
+      ws.send(JSON.stringify({
+        type: 'SURVIVAL_INPUT',
+        dx: movDx, dy: movDy,
+        sprint: sprintRef.current,
+        shooting: shootingRef.current,
+        aimAngle,
+      }))
     }, 40)
-    return () => clearInterval(inputTimerRef.current)
+    return () => {
+      clearInterval(inputTimerRef.current)
+      window.removeEventListener('mousedown', onMouseDown)
+      window.removeEventListener('mouseup', onMouseUp)
+      shootingRef.current = false
+      wasdRef.current = { w: false, a: false, s: false, d: false }
+    }
   }, [screen])
 
   useEffect(() => {
@@ -238,7 +273,7 @@ export default function Survival() {
     resize(); window.addEventListener('resize', resize)
 
     const render = () => {
-      const { players, food, leaderboard, zone, winner, resetCountdown, raceTarget, mode } = stateRef.current
+      const { players, food, leaderboard, zone, winner, resetCountdown, mode, bullets, weaponBoxes } = stateRef.current
       const W = canvas.width, H = canvas.height, WORLD = worldSizeRef.current
       const me = players.find(p => p.id === myIdRef.current)
       const myMass = me ? Math.floor(me.r * me.r / 25) : 0
@@ -287,6 +322,34 @@ export default function Survival() {
         }
       }
 
+      // Weapon boxes (battle)
+      if (weaponBoxes) {
+        const pulse = 0.7 + 0.3 * Math.sin(Date.now() / 500)
+        for (const wb of weaponBoxes) {
+          ctx.save()
+          ctx.shadowColor = '#fdcb6e'; ctx.shadowBlur = 18 * pulse
+          ctx.fillStyle = '#b8860b'
+          roundRect(ctx, wb.x - 16, wb.y - 16, 32, 32, 7); ctx.fill()
+          ctx.fillStyle = '#fdcb6e'
+          roundRect(ctx, wb.x - 12, wb.y - 12, 24, 24, 5); ctx.fill()
+          ctx.shadowBlur = 0
+          ctx.fillStyle = '#fff'; ctx.font = 'bold 15px sans-serif'
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+          ctx.fillText('⚔', wb.x, wb.y + 1)
+          ctx.restore()
+        }
+        ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic'
+      }
+
+      // Bullets
+      if (bullets) {
+        for (const b of bullets) {
+          ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI * 2)
+          ctx.fillStyle = b.color; ctx.shadowColor = b.color; ctx.shadowBlur = 10; ctx.fill()
+        }
+        ctx.shadowBlur = 0
+      }
+
       // Food pellets
       for (const f of food) {
         ctx.beginPath(); ctx.arc(f.x, f.y, 6, 0, Math.PI * 2)
@@ -294,11 +357,28 @@ export default function Survival() {
       }
       ctx.shadowBlur = 0
 
-      // Players (small-first)
+      // Players (small-first, guns drawn behind cell)
+      const GUN_SPREADS = [null, [0], [-0.2, 0.2], [-0.28, 0, 0.28], [-0.4, -0.13, 0.13, 0.4]]
       const sorted = [...players].sort((a, b) => a.r - b.r)
       for (const p of sorted) {
         if (!p.alive) continue
         const isMe = p.id === myIdRef.current
+
+        // Gun barrels pointing toward aim direction
+        const wl = p.weaponLevel || 0
+        if (wl > 0) {
+          const baseAngle = isMe ? aimAngleRef.current : (p.aimAngle || 0)
+          const spreads = GUN_SPREADS[Math.min(wl, 4)] || [0]
+          const bW = Math.max(6, p.r * 0.3)
+          for (const spread of spreads) {
+            ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(baseAngle + spread)
+            ctx.fillStyle = '#636e72'
+            ctx.fillRect(p.r * 0.35, -bW / 2, p.r * 1.15, bW)
+            ctx.fillStyle = '#b2bec3'
+            ctx.fillRect(p.r * 0.35, -bW / 2, p.r * 1.15, bW * 0.35)
+            ctx.restore()
+          }
+        }
 
         ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
         ctx.fillStyle = p.color + '28'; ctx.fill()
@@ -322,18 +402,6 @@ export default function Survival() {
       }
 
       ctx.restore()
-
-      // Hunger: low-mass danger vignette
-      if (mode === 'hunger' && me) {
-        const dangerLevel = Math.max(0, 1 - (myMass - 10) / 28)
-        if (dangerLevel > 0) {
-          const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 240)
-          const grad = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.25, W/2, H/2, Math.min(W,H)*0.72)
-          grad.addColorStop(0, 'rgba(255,49,49,0)')
-          grad.addColorStop(1, `rgba(255,49,49,${dangerLevel * 0.48 * pulse})`)
-          ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H)
-        }
-      }
 
       // Winner banner
       if (winner) {
@@ -372,41 +440,78 @@ export default function Survival() {
         })
       }
 
-      // HUD: mode label top-center
-      if ((mode === 'battle' || mode === 'race') && !winner) {
+      // HUD: mode badge (battle only)
+      if (mode === 'battle' && !winner) {
         const mInfo = MODES.find(m => m.id === mode)
         ctx.fillStyle = mInfo.color + 'cc'; ctx.font = 'bold 11px Inter,sans-serif'; ctx.textAlign = 'center'
         ctx.fillText(`${mInfo.label.toUpperCase()} · VÒNG ${stateRef.current.roundNum}`, W/2, 22)
         ctx.textAlign = 'left'
       }
 
-      // HUD: Race progress bar
-      if (mode === 'race' && raceTarget && me) {
-        const prog = Math.min(1, myMass / raceTarget)
-        const bX = W/2 - 160, bY = H - 46, bW = 320, bH = 14
+      // HUD: Mini-map (battle mode, bottom-right)
+      if (mode === 'battle') {
+        const MM = 160, MPad = 4, MX = W - MM - 20, MY = H - MM - 20, mscale = MM / WORLD
         ctx.fillStyle = 'rgba(8,9,15,0.84)'
-        roundRect(ctx, bX - 10, bY - 24, bW + 20, bH + 36, 10); ctx.fill()
-        ctx.fillStyle = '#ffa502'; ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'center'
-        const rem = Math.max(0, raceTarget - myMass)
-        ctx.fillText(rem > 0 ? `CÒN ${rem} KHỐI LƯỢNG ĐỂ THẮNG` : '🏆 ĐÃ ĐẠT MỤC TIÊU!', W/2, bY - 8)
-        ctx.fillStyle = 'rgba(255,255,255,0.08)'; roundRect(ctx, bX, bY, bW, bH, 6); ctx.fill()
-        if (prog > 0) { ctx.fillStyle = '#ffa502'; roundRect(ctx, bX, bY, bW * prog, bH, 6); ctx.fill() }
-        ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(bX + bW * 0.5 - 1, bY, 2, bH)
+        roundRect(ctx, MX - MPad, MY - MPad - 16, MM + MPad*2, MM + MPad*2 + 16, 10); ctx.fill()
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.stroke()
+        ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.font = 'bold 9px Inter,sans-serif'; ctx.textAlign = 'center'
+        ctx.fillText('BẢN ĐỒ', MX + MM/2, MY - 5)
+        ctx.fillStyle = 'rgba(255,255,255,0.03)'; ctx.fillRect(MX, MY, MM, MM)
+        ctx.strokeStyle = 'rgba(0,240,255,0.3)'; ctx.lineWidth = 1; ctx.strokeRect(MX, MY, MM, MM)
+        if (zone) {
+          ctx.save()
+          ctx.beginPath(); ctx.rect(MX, MY, MM, MM)
+          ctx.arc(MX + zone.cx * mscale, MY + zone.cy * mscale, zone.r * mscale, 0, Math.PI*2, true)
+          ctx.fillStyle = 'rgba(255,49,49,0.18)'; ctx.fill('evenodd'); ctx.restore()
+          ctx.beginPath(); ctx.arc(MX + zone.cx * mscale, MY + zone.cy * mscale, zone.r * mscale, 0, Math.PI*2)
+          ctx.strokeStyle = 'rgba(255,49,49,0.75)'; ctx.lineWidth = 1; ctx.stroke()
+        }
+        for (const p of players) {
+          if (!p.alive) continue
+          const isMe2 = p.id === myIdRef.current
+          ctx.beginPath(); ctx.arc(MX + p.x * mscale, MY + p.y * mscale, isMe2 ? 4 : 2.5, 0, Math.PI*2)
+          ctx.fillStyle = p.color; ctx.fill()
+          if (isMe2) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke() }
+        }
+        // Weapon box markers on mini-map
+        if (weaponBoxes) {
+          ctx.fillStyle = '#fdcb6e'
+          for (const wb of weaponBoxes) {
+            ctx.fillRect(MX + wb.x * mscale - 3, MY + wb.y * mscale - 3, 6, 6)
+          }
+        }
         ctx.textAlign = 'left'
       }
 
-      // HUD: My stats
+      // HUD: My stats + Mana bar
       if (me) {
         const rank = leaderboard.findIndex(e => e.id === myIdRef.current) + 1
         const mInfo = MODES.find(m => m.id === mode) || MODES[0]
+        const isBattle = mode === 'battle'
+        const statsH = isBattle ? 104 : 74
+        const statsY = H - statsH - 16
         ctx.fillStyle = 'rgba(8,9,15,0.84)'
-        roundRect(ctx, 16, H - 90, 164, 74, 12); ctx.fill()
+        roundRect(ctx, 16, statsY, 164, statsH, 12); ctx.fill()
         ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'left'
-        ctx.fillText('KHỐI LƯỢNG', 28, H - 70)
+        ctx.fillText('KHỐI LƯỢNG', 28, statsY + 20)
         ctx.fillStyle = mInfo.color; ctx.font = 'bold 30px Outfit,sans-serif'
-        ctx.fillText(myMass, 28, H - 42)
+        ctx.fillText(myMass, 28, statsY + 48)
         ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = '10px Inter,sans-serif'
-        ctx.fillText(rank > 0 ? `Hạng #${rank}/${leaderboard.length}` : 'Chờ leaderboard...', 28, H - 24)
+        ctx.fillText(rank > 0 ? `Hạng #${rank}/${leaderboard.length}` : 'Chờ leaderboard...', 28, statsY + 66)
+        if (isBattle) {
+          const myMana = me.mana ?? 100
+          const manaY = statsY + 78
+          ctx.fillStyle = 'rgba(255,255,255,0.28)'; ctx.font = '9px Inter,sans-serif'
+          ctx.fillText(sprintRef.current && myMana > 0 ? 'MANA  ⚡ ĐANG CHẠY' : 'MANA  [SHIFT]', 28, manaY)
+          ctx.fillStyle = 'rgba(255,255,255,0.07)'
+          roundRect(ctx, 28, manaY + 5, 136, 8, 3); ctx.fill()
+          if (myMana > 0) {
+            const manaColor = sprintRef.current ? '#74b9ff' : '#a29bfe'
+            ctx.fillStyle = manaColor; ctx.shadowColor = manaColor; ctx.shadowBlur = 6
+            roundRect(ctx, 28, manaY + 5, 136 * (myMana / 100), 8, 3); ctx.fill()
+            ctx.shadowBlur = 0
+          }
+        }
       }
 
       rafRef.current = requestAnimationFrame(render)
@@ -418,8 +523,15 @@ export default function Survival() {
 
   const handleLeave = () => {
     const ws = wsRef.current
-    if (ws) { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'SURVIVAL_LEAVE' })); ws.close() }
-    navigate('/')
+    if (ws) {
+      if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'SURVIVAL_LEAVE' }))
+      ws.onclose = null
+      ws.close()
+    }
+    wsRef.current = null
+    myIdRef.current = null
+    setDeathInfo(null)
+    setScreen('modeSelect')
   }
 
   const handleRespawn = () => {
@@ -486,17 +598,6 @@ export default function Survival() {
         </span>
       </div>
 
-      {raceToast && (
-        <div style={{
-          position:'fixed', bottom:110, left:'50%', transform:'translateX(-50%)', zIndex:250,
-          background:'rgba(255,165,2,0.14)', border:'1px solid rgba(255,165,2,0.4)',
-          color:'#ffa502', borderRadius:24, padding:'10px 20px', fontSize:13, fontWeight:600,
-          backdropFilter:'blur(12px)', whiteSpace:'nowrap',
-        }}>
-          ⚡ {raceToast}
-        </div>
-      )}
-
       {screen === 'dead' && (
         <div style={{
           position:'fixed', inset:0, zIndex:300,
@@ -509,13 +610,11 @@ export default function Survival() {
             maxWidth:360, width:'90%',
             boxShadow:'0 24px 60px rgba(0,0,0,0.6), 0 0 40px rgba(255,49,49,0.07)',
           }}>
-            <div style={{ fontSize:52, marginBottom:16 }}>
-              {modeRef.current === 'hunger' ? '🥵' : '💀'}
-            </div>
+            <div style={{ fontSize:52, marginBottom:16 }}>💀</div>
             <h2 style={{ fontFamily:'Outfit,sans-serif', fontSize:26, fontWeight:800, marginBottom:8, color:'#f87171' }}>
-              {modeRef.current === 'hunger' ? 'Bạn đã chết đói!' : 'Bạn đã bị ăn!'}
+              Bạn đã bị loại!
             </h2>
-            {deathInfo?.killedBy && !['đói','vùng nguy hiểm'].includes(deathInfo.killedBy) && (
+            {deathInfo?.killedBy && deathInfo.killedBy !== 'vùng nguy hiểm' && (
               <p style={{ color:'rgba(255,255,255,0.5)', fontSize:14, marginBottom:6 }}>
                 Bởi <strong style={{ color:'#fff' }}>{deathInfo.killedBy}</strong>
               </p>
@@ -534,7 +633,7 @@ export default function Survival() {
               </p>
             )}
             <div style={{ display:'flex', flexDirection:'column', gap:10, marginTop:16 }}>
-              {(modeRef.current === 'classic' || modeRef.current === 'hunger') && (
+              {modeRef.current === 'classic' && (
                 <button onClick={handleRespawn} style={{
                   background:`linear-gradient(135deg,${currentModeInfo.grad[0]},${currentModeInfo.grad[1]})`,
                   border:'none', color:'#fff', borderRadius:12, padding:'13px 0', width:'100%',
@@ -548,7 +647,7 @@ export default function Survival() {
                 color:'rgba(255,255,255,0.6)', borderRadius:12, padding:'11px 0', width:'100%',
                 fontSize:14, cursor:'pointer', fontFamily:'Outfit,sans-serif',
               }}>
-                Về Trang Chủ
+                Chọn Chế Độ Khác
               </button>
             </div>
           </div>
