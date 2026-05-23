@@ -121,9 +121,9 @@ function LobbyScreen({ name, color, onNameChange, onColorChange, onJoin, onBack,
           }}>
             <p style={{ margin: 0, color: '#fff', fontWeight: 600, marginBottom: 6 }}>📖 Cách chơi</p>
             <p style={{ margin: '0 0 4px' }}>• Di chuyển ra ngoài lãnh thổ sẽ để lại <strong style={{ color: '#fff' }}>đuôi</strong>.</p>
-            <p style={{ margin: '0 0 4px' }}>• Quay về lãnh thổ → vùng đi qua biến thành <strong style={{ color: '#fff' }}>của bạn</strong>.</p>
-            <p style={{ margin: '0 0 4px' }}>• Cắt đuôi đối thủ → <strong style={{ color: '#ff6b6b' }}>giết</strong> họ ngay lập tức.</p>
-            <p style={{ margin: 0 }}>• Đạt <strong style={{ color: '#fff' }}>55% bản đồ</strong> để thắng vòng!</p>
+            <p style={{ margin: '0 0 4px' }}>• Đụng lại <strong style={{ color: '#fff' }}>đuôi của mình</strong> hoặc <strong style={{ color: '#fff' }}>lãnh thổ</strong> → vùng bao trong tô màu của bạn.</p>
+            <p style={{ margin: '0 0 4px' }}>• Đang ở ngoài lãnh thổ mà bị đối thủ đụng trúng → <strong style={{ color: '#ff6b6b' }}>bạn thua</strong>.</p>
+            <p style={{ margin: 0 }}>• Tô kín <strong style={{ color: '#fff' }}>100% bản đồ</strong> để chiến thắng!</p>
           </div>
         </div>
       </div>
@@ -155,23 +155,7 @@ export default function PaperIo() {
   const screenRef    = useRef('lobby')
   const rafRef       = useRef(null)
   const particlesRef = useRef([])          // claim/death particles
-
-  // refresh "taken colors" every few seconds while in lobby so user sees real-time availability
-  useEffect(() => {
-    if (screen !== 'lobby') return
-    let cancelled = false
-    let ws
-    const fetchTaken = () => {
-      try {
-        ws = new WebSocket(getWsUrl())
-        ws.onopen = () => { /* connect only to peek; close fast */ ws.close() }
-        ws.onerror = () => {}
-      } catch {}
-    }
-    // We can't peek without a custom message; just show all colors as available
-    // (server will enforce). Keep this hook in case we add a peek later.
-    return () => { cancelled = true; if (ws) ws.close() }
-  }, [screen])
+  const winnerShownRef = useRef(false)
 
   useEffect(() => { screenRef.current = screen }, [screen])
 
@@ -226,12 +210,12 @@ export default function PaperIo() {
               }
             }
           }
-          if (msg.winner && !stateRef.current.winnerShown) {
-            // local flag to avoid repeated SFX
+          if (msg.winner && !winnerShownRef.current) {
             if (msg.winner.slot === mySlotRef.current) sounds.playWin()
             else if (mySlotRef.current >= 0) sounds.playLose()
-            stateRef.current.winnerShown = true
+            winnerShownRef.current = true
           }
+          if (!msg.winner) winnerShownRef.current = false
           break
         }
         case 'PAPERIO_DIED':
@@ -705,9 +689,9 @@ export default function PaperIo() {
               <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 14, marginBottom: 18 }}>
                 {deathInfo.killedBy === 'va biên'
                   ? 'Bạn đã đụng phải biên giới!'
-                  : deathInfo.killedBy === 'cắn đuôi'
-                  ? 'Bạn tự cắt đuôi chính mình!'
-                  : (<>Bị <strong style={{ color: '#fff' }}>{deathInfo.killedBy}</strong> cắt đuôi</>)
+                  : deathInfo.killedBy === 'va chạm'
+                  ? 'Va chạm trực diện ngoài lãnh thổ!'
+                  : (<>Bị <strong style={{ color: '#fff' }}>{deathInfo.killedBy}</strong> đụng trúng</>)
                 }
               </p>
             )}
